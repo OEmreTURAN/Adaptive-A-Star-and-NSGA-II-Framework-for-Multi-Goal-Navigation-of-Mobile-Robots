@@ -1,11 +1,38 @@
 {
-    "Standard GA": 2.5024,
-    "AB-WOA-APF": 10.2357,
-    "HWPSO": 1.3328,
-    "NSGA-II Length": 8.777,
-    "NSGA-II Smooth": 8.777,
-    "NSGA-II Effort": 8.777,
-    "NSGA-II Centered": 8.777,
-    "NSGA-II Safe": 8.777,
-    "NSGA-II Adaptive": 8.777
+    "Standard GA": {
+        "mean": 22.9543616271019,
+        "std": 6.281698230034063
+    },
+    "AB-WOA-APF": {
+        "mean": 45.70130779027939,
+        "std": 12.289977677554635
+    },
+    "HWPSO": {
+        "mean": 16.549721121788025,
+        "std": 5.111293091586655
+    },
+    "NSGA-II Length": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    },
+    "NSGA-II Smooth": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    },
+    "NSGA-II Effort": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    },
+    "NSGA-II Centered": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    },
+    "NSGA-II Safe": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    },
+    "NSGA-II Adaptive": {
+        "mean": 309.0100450515747,
+        "std": 91.65669001988248
+    }
 }
