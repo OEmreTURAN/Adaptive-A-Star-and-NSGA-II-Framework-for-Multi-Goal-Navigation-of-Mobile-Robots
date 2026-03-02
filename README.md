@@ -8,10 +8,10 @@ Results on "Moderate-I" level environment:
 ![alt text](Patrolling_9Paths_Moderate-I.png)
 
 Results on "Moderate-II" level environment:
-![alt text](Patrolling_9Paths_Moderate-I.png)
+![alt text](Patrolling_9Paths_Moderate-II.png)
 
 Results on "Moderate-III" level environment:
-![alt text](Patrolling_9Paths_Moderate-I.png)
+![alt text](Patrolling_9Paths_Moderate-III.png)
 
 Results on "Hard" level environment:
 ![alt text](Patrolling_9Paths_Hard.png)
