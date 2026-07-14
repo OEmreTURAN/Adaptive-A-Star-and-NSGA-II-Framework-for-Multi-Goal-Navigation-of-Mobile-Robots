@@ -8,7 +8,7 @@ This repository provides the implementation and publication figures associated w
 |---|---|
 | Article title | Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots |
 | Repository purpose | Reproduce the trajectory, comparative, sensitivity, timing, and ablation evaluations described in the article |
-| Authors | Osman Emre Turan, Oguz Misir, and Mustafa Ozden |
+| Authors | Osman Emre Turan, Oğuz Mısır, and Mustafa Özden |
 | Reference Python version | Python 3.12.4 |
 
 ## Quick start
