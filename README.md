@@ -62,7 +62,6 @@ A successful smoke test prints progress to the terminal and generates, in the cu
     `-- sensitivity/          # Publication sensitivity figures
 ```
 
-The repository contains source code and derived publication figures. Numerical experiment files are generated locally and are not currently distributed in the repository.
 
 ## Installation
 
@@ -376,10 +375,3 @@ The `test` and `sensitivity` modes process episodes in parallel. Interleaved pro
 When using this repository, cite the associated article:
 
 **Osman Emre Turan, Oguz Misir, and Mustafa Ozden. "Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots."**
-
-No DOI or publication-status information is provided here.
-
-## Support
-
-- Report software defects and reproducibility problems through [GitHub Issues](https://github.com/OEmreTURAN/Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots/issues).
-- Direct article-related questions to the corresponding author, Osman Emre Turan, at [emre.turan@btu.edu.tr](mailto:emre.turan@btu.edu.tr).
