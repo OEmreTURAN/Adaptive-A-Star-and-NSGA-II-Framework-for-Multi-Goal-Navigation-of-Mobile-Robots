@@ -1,20 +1,68 @@
 # Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots
 
-This repository provides the Python implementation and evaluation data supporting the study **"Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots."**
+This repository provides the implementation and publication figures associated with the article **"Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots."** The software evaluates A*-initialized, B-Spline-based multi-objective path planning for sequential mobile-robot navigation across five simulation environments (`Level-1` through `Level-5`).
 
-The framework combines A* initialization, B-Spline trajectory generation, five-objective NSGA-II optimization, adaptive route blending, and collision-aware post-processing for sequential multi-goal mobile-robot navigation.
+## Project metadata
 
-## Requirements
+| Item | Details |
+|---|---|
+| Article title | Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots |
+| Repository purpose | Reproduce the trajectory, comparative, sensitivity, timing, and ablation evaluations described in the article |
+| Authors | Osman Emre Turan, Oguz Misir, and Mustafa Ozden |
+| Corresponding author | Osman Emre Turan ([emre.turan@btu.edu.tr](mailto:emre.turan@btu.edu.tr)) |
+| Reference Python version | Python 3.12.4 |
 
-The archived experiments used:
+## Quick start
 
-- Python 3.12.4
-- NumPy 1.26.4
-- SciPy 1.14.0
-- Matplotlib 3.9.0
-- DEAP 1.4.3
+```bash
+git clone https://github.com/OEmreTURAN/Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots.git
+cd Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots
+python -m venv .venv
+```
 
-A GPU is not required. Multi-episode evaluations use CPU multiprocessing when multiple processors are available.
+Activate the environment:
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash
+# Linux or macOS
+source .venv/bin/activate
+```
+
+Install the dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Run a one-episode smoke test of the proposed planner in `Level-1`:
+
+```bash
+python -u patrollingAlgorithms.py segment_timing 1 Level-1 proposed_only
+```
+
+A successful smoke test prints progress to the terminal and generates, in the current working directory, `calculation_times_segment_Level-1.json` together with timing-summary CSV, LaTeX-table, and Markdown-report files. This one-episode run verifies software execution only; it does not reproduce the article's statistical timing results.
+
+## Repository structure
+
+```text
+.
+|-- patrollingAlgorithms.py   # Implementation and experiment entry point
+|-- requirements.txt          # Pinned Python dependencies
+|-- README.md
+`-- figures/
+    |-- paths/                # Representative publication trajectories
+    |-- boxplots/             # Publication box plots
+    |-- raincloud/            # Publication raincloud plots
+    |-- radar/                # Publication radar charts
+    `-- sensitivity/          # Publication sensitivity figures
+```
+
+The repository contains source code and derived publication figures. Numerical experiment files are generated locally and are not currently distributed in the repository.
 
 ## Installation
 
@@ -25,7 +73,7 @@ git clone https://github.com/OEmreTURAN/Adaptive-A-Star-and-NSGA-II-Framework-fo
 cd Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots
 ```
 
-### 2. Create a virtual environment
+### 2. Create and activate a virtual environment
 
 Windows PowerShell:
 
@@ -48,27 +96,32 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
-If Python 3.12 is already the default interpreter, the environment can also be created with:
+When Python 3.12 is already the default interpreter, use `python -m venv .venv`.
 
-```bash
-python -m venv .venv
-```
-
-### 3. Install the required packages
+### 3. Install dependencies
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 4. Verify the installation
+The pinned dependencies are:
+
+- NumPy 1.26.4
+- SciPy 1.14.0
+- Matplotlib 3.9.0
+- DEAP 1.4.3
+
+A GPU is not required. Multi-episode evaluations use CPU multiprocessing when multiple logical processors are available.
+
+### 4. Verify the environment
 
 ```bash
 python -c "import numpy, scipy, matplotlib, deap; print('Dependencies imported successfully')"
 python -m py_compile patrollingAlgorithms.py
 ```
 
-## Running evaluations
+## Command-line interface
 
 Run commands from the repository root using:
 
@@ -76,18 +129,30 @@ Run commands from the repository root using:
 python -u patrollingAlgorithms.py <mode> [arguments]
 ```
 
-The `-u` option prints progress immediately. Generated files are written to the current working directory.
+The `-u` option prints progress without terminal-output buffering. All generated numerical files, reports, tables, and new figures are written to the current working directory.
 
-Available evaluation modes:
+Available modes:
 
-| Mode | Evaluation |
+| Mode | Purpose |
 |---|---|
-| `single` | Representative fixed-seed trajectories |
-| `test` | Main 100-episode method comparison |
-| `sensitivity` | Parameter sensitivity analysis |
-| `segment_timing` | Route and single-segment timing analysis |
-| `segment_timing_aggregate` | Summary generation from timing checkpoints |
-| `ablation` | Controlled module-ablation analysis |
+| `single` | Generate representative fixed-seed trajectories |
+| `test` | Run the main 100-episode method comparison |
+| `sensitivity` | Evaluate parameter sensitivity |
+| `segment_timing` | Measure route and single-segment planning time |
+| `segment_timing_aggregate` | Rebuild summaries from existing timing checkpoints |
+| `ablation` | Run controlled module-ablation evaluations |
+
+## Reproducing the article analyses
+
+| Analysis | Full reproduction command | Generated output types |
+|---|---|---|
+| Representative trajectories | `python -u patrollingAlgorithms.py single` | PNG trajectory figures and timing JSON files |
+| Main 100-episode comparison | `python -u patrollingAlgorithms.py test` | Per-environment JSON summaries and PNG box, raincloud, radar, normalized-bar, and metric plots |
+| Parameter sensitivity | `python -u patrollingAlgorithms.py sensitivity 30 rho_tau` | JSON results, CSV summaries, LaTeX-table file, Markdown report, and PNG sensitivity figures |
+| Route and single-segment timing | `python -u patrollingAlgorithms.py segment_timing 100 all proposed_only` | Per-level checkpoint JSON files, CSV summaries, LaTeX-table file, and Markdown timing report |
+| Ablation analysis | `python -u patrollingAlgorithms.py ablation 30 all` | JSON results, CSV summary, LaTeX-table file, and Markdown ablation report |
+
+The full reproduction commands are computationally intensive. Run them only when sufficient CPU time is available and retain their generated files in a dedicated working directory.
 
 ## 1. Representative trajectories
 
@@ -95,9 +160,7 @@ Available evaluation modes:
 python -u patrollingAlgorithms.py single
 ```
 
-This command uses seed 50 and evaluates all comparison methods once across the five environments. It generates trajectory-comparison figures and timing JSON files.
-
-Use this mode first to confirm that the software runs correctly and to inspect representative paths.
+This mode uses seed 50 and evaluates the proposed framework and comparison methods once across `Level-1` through `Level-5`. It generates representative trajectory figures and timing JSON files.
 
 ## 2. Main 100-episode comparison
 
@@ -105,7 +168,7 @@ Use this mode first to confirm that the software runs correctly and to inspect r
 python -u patrollingAlgorithms.py test
 ```
 
-This command evaluates all methods for 100 episodes in each of the five environments. It records:
+This mode runs 100 episodes per environment for all evaluated methods and records:
 
 - path length;
 - maximum curvature;
@@ -115,13 +178,11 @@ This command evaluates all methods for 100 episodes in each of the five environm
 - centering; and
 - computation time.
 
-It also generates JSON summaries, box plots, raincloud plots, radar charts, normalized bar charts, and metric-specific plots.
+It generates per-environment JSON summaries and derived visual outputs, including box plots, raincloud plots, radar charts, normalized bar charts, and metric-specific plots.
 
-This evaluation uses CPU multiprocessing and may require substantial computation time.
+## 3. Parameter sensitivity
 
-## 3. Parameter sensitivity analysis
-
-Command syntax:
+Syntax:
 
 ```text
 python -u patrollingAlgorithms.py sensitivity [episodes] [scope]
@@ -129,34 +190,30 @@ python -u patrollingAlgorithms.py sensitivity [episodes] [scope]
 
 Available scopes:
 
-| Scope | Evaluation |
+| Scope | Parameters evaluated |
 |---|---|
 | `rho_tau` | A* seed ratio and softmin temperature |
 | `rho` | A* seed ratio only |
 | `tau` | Softmin temperature only |
 | `all` | All implemented parameter sweeps |
 
-Run the rho and tau evaluation used in the study:
+Reproduce the article's rho/tau analysis:
 
 ```bash
 python -u patrollingAlgorithms.py sensitivity 30 rho_tau
 ```
 
-Run every available parameter sweep:
+Run all implemented sensitivity sweeps:
 
 ```bash
 python -u patrollingAlgorithms.py sensitivity 30 all
 ```
 
-The `all` evaluation is considerably more expensive because every parameter value is evaluated across all five environments.
-
-Sensitivity evaluation generates JSON and CSV summaries, LaTeX table data, an analysis report, and sensitivity figures.
-
-These runs evaluate fixed parameter settings. They do not perform online parameter adaptation.
+Sensitivity runs generate JSON results, CSV summaries, LaTeX-table data, a Markdown report, and sensitivity figures. These evaluations compare fixed parameter values; they do not implement online parameter adaptation.
 
 ## 4. Route and single-segment timing
 
-Command syntax:
+Syntax:
 
 ```text
 python -u patrollingAlgorithms.py segment_timing [episodes] [environment] [method-filter]
@@ -164,31 +221,31 @@ python -u patrollingAlgorithms.py segment_timing [episodes] [environment] [metho
 
 The environment argument can be `all` or one of `Level-1`, `Level-2`, `Level-3`, `Level-4`, or `Level-5`.
 
-Available method filters:
+Method filters:
 
-| Filter | Evaluation |
+| Filter | Methods evaluated |
 |---|---|
 | `proposed_only` | Proposed NSGA-II framework |
 | `competitors_only` | Standard GA, AB-WOA-APF, and HWPSO |
 | `all` | Proposed framework and all comparison methods |
 
-Run the timing evaluation used in the study:
+Reproduce the article's proposed-method timing analysis:
 
 ```bash
 python -u patrollingAlgorithms.py segment_timing 100 all proposed_only
 ```
 
-Run one environment only:
+Run one level only:
 
 ```bash
 python -u patrollingAlgorithms.py segment_timing 100 Level-3 proposed_only
 ```
 
-The timing mode records full-route runtime and individual waypoint-to-waypoint segment times. For the proposed method, one segment optimization jointly generates the Length, Smooth, Effort, Centered, Safe, and Adaptive route variants.
+The timing mode records complete-route runtime and individual waypoint-to-waypoint segment times. One proposed-method segment optimization jointly generates the Length, Smooth, Effort, Centered, Safe, and Adaptive route variants.
 
 ### Resume an interrupted timing run
 
-Timing results are checkpointed during execution. To resume, run the same command again from the same working directory:
+Checkpoint files are updated during execution. To resume, run the same command from the same working directory:
 
 ```bash
 python -u patrollingAlgorithms.py segment_timing 100 all proposed_only
@@ -196,47 +253,35 @@ python -u patrollingAlgorithms.py segment_timing 100 all proposed_only
 
 Completed records are detected and skipped automatically.
 
-Timing evaluation generates environment-level checkpoint JSON files, single-segment CSV summaries, route-versus-segment CSV summaries, LaTeX table data, and a timing report.
-
-## 5. Rebuild timing summaries without rerunning experiments
-
-Command syntax:
-
-```text
-python -u patrollingAlgorithms.py segment_timing_aggregate [method-filter] [environment]
-```
-
-Example:
+### Rebuild timing summaries without rerunning planners
 
 ```bash
 python -u patrollingAlgorithms.py segment_timing_aggregate proposed_only all
 ```
 
-This mode does not run the planners. It rebuilds summary files from timing checkpoint JSON files located in the current working directory.
+Aggregate-only mode searches the current working directory for `calculation_times_segment_Level-*.json` checkpoint files and rebuilds the CSV, LaTeX-table, and Markdown summaries. Run it in the directory containing the checkpoint files.
 
-Run this command in the same directory that contains the checkpoint files produced by `segment_timing`.
+## 5. Ablation analysis
 
-## 6. Ablation analysis
-
-Command syntax:
+Syntax:
 
 ```text
 python -u patrollingAlgorithms.py ablation [episodes] [environment]
 ```
 
-Run the full ablation evaluation used in the study:
+Reproduce the complete ablation analysis:
 
 ```bash
 python -u patrollingAlgorithms.py ablation 30 all
 ```
 
-Run one environment only:
+Run one level only:
 
 ```bash
 python -u patrollingAlgorithms.py ablation 30 Level-4
 ```
 
-The ablation evaluation compares:
+The evaluated variants are:
 
 1. full proposed method;
 2. no A* initialization;
@@ -245,50 +290,55 @@ The ablation evaluation compares:
 5. no adaptive softmin fusion; and
 6. no post-processing.
 
-It generates raw JSON records, CSV summaries, LaTeX table data, and an ablation report.
+The evaluation generates a JSON result file, CSV summary, LaTeX-table file, and Markdown report.
 
-## Recommended evaluation sequence
+## Smoke tests versus full reproduction
 
-For first-time use:
-
-1. Create and activate the virtual environment.
-2. Install `requirements.txt`.
-3. Verify the installation.
-4. Run the representative `single` evaluation.
-5. Run small evaluation jobs to confirm multiprocessing and output generation.
-6. Start the complete evaluations only when sufficient CPU time is available.
-
-Small evaluation examples:
+Use reduced runs to check installation, multiprocessing, and output generation before starting full evaluations:
 
 ```bash
-python -u patrollingAlgorithms.py sensitivity 1 rho
 python -u patrollingAlgorithms.py segment_timing 1 Level-1 proposed_only
+python -u patrollingAlgorithms.py sensitivity 1 rho
 python -u patrollingAlgorithms.py ablation 1 Level-1
 ```
 
-These reduced runs are software checks and should not be compared directly with the completed study results.
+These one-episode commands are software checks. They do **not** reproduce the sample sizes, statistical summaries, or conclusions reported in the article.
 
-## Completed evaluation data
+Full reproduction uses:
 
-Completed JSON, CSV, and figure outputs are included in the repository. They can be inspected without rerunning the full experiments.
+```bash
+python -u patrollingAlgorithms.py test
+python -u patrollingAlgorithms.py sensitivity 30 rho_tau
+python -u patrollingAlgorithms.py segment_timing 100 all proposed_only
+python -u patrollingAlgorithms.py ablation 30 all
+```
 
-The timing, sensitivity, and ablation files contain the deterministic seeds used for those evaluations. The archived main-comparison files contain the complete 100-episode metric values used for the statistical summaries.
+## Repository contents and generated outputs
+
+The repository includes:
+
+- the complete Python implementation; and
+- publication figures derived from completed evaluations.
+
+Raw numerical experiment outputs are not currently distributed in the repository. Running the corresponding evaluation modes generates JSON, CSV, Markdown-report, LaTeX-table, and figure files locally in the current working directory.
+
+Publication figures are derived visual outputs and should not be interpreted as raw experimental data. Reduced one-episode commands verify software operation only and do not reproduce the full statistical results reported in the article.
 
 ## Timing interpretation
 
-The archived timing experiments were performed on an Intel Core i5-1155G7 processor with four physical cores and eight logical processors.
+The reported timing evaluation was performed on an Intel Core i5-1155G7 processor with four physical cores and eight logical processors.
 
-Runtime depends on the processor, operating system, installed package versions, background processes, and thermal conditions. The reported values should therefore be interpreted comparatively and not as platform-independent real-time guarantees.
+Absolute runtime depends on processor performance, operating system, package versions, background activity, and thermal conditions. Timing results should therefore be interpreted comparatively and not as platform-independent real-time guarantees.
 
 ## Troubleshooting
 
 ### `python` is not recognized
 
-On Windows, use `py -3.12` instead of `python`. On Linux or macOS, use `python3` if required.
+On Windows, use `py -3.12` instead of `python`. On Linux or macOS, use `python3` when required.
 
 ### `ModuleNotFoundError`
 
-Activate the virtual environment and reinstall the dependencies:
+Activate the virtual environment and install the pinned dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
@@ -307,16 +357,29 @@ Alternatively, use Command Prompt and `.venv\Scripts\activate.bat`.
 
 ### A timing run was interrupted
 
-Execute the same `segment_timing` command from the same directory. Completed checkpoint records will be skipped.
+Run the same `segment_timing` command again from the same directory. Completed checkpoint records will be skipped.
 
-### Output files are not visible in the repository root
+### Aggregate-only mode produces empty summaries
 
-The program writes files to the directory from which it was launched. Check the current working directory used by the terminal.
+Confirm that the current working directory contains the `calculation_times_segment_Level-*.json` checkpoint files generated by `segment_timing`.
+
+### Output files are not where expected
+
+The program writes generated files to the directory from which it was launched. Check the terminal's current working directory.
 
 ### Multiprocessing messages appear out of order
 
-The `test` and `sensitivity` modes process episodes in parallel. Interleaved terminal progress messages are expected.
+The `test` and `sensitivity` modes process episodes in parallel. Interleaved progress messages are expected. Avoid launching multiple full evaluations simultaneously on the same machine.
 
 ## Citation
 
-Citation metadata are provided in `CITATION.cff`. Please cite the associated article when using the software or evaluation data.
+When using this repository, cite the associated article:
+
+**Osman Emre Turan, Oguz Misir, and Mustafa Ozden. "Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots."**
+
+No DOI or publication-status information is provided here.
+
+## Support
+
+- Report software defects and reproducibility problems through [GitHub Issues](https://github.com/OEmreTURAN/Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots/issues).
+- Direct article-related questions to the corresponding author, Osman Emre Turan, at [emre.turan@btu.edu.tr](mailto:emre.turan@btu.edu.tr).
