@@ -7,7 +7,7 @@ This repository provides the implementation and publication figures associated w
 | Item | Details |
 |---|---|
 | Article title | Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots |
-| Repository purpose | Reproduce the trajectory, comparative, sensitivity, timing, and ablation evaluations described in the article |
+| Repository purpose | Run the trajectory, comparative, sensitivity, timing, and ablation evaluations described in the article |
 | Authors | Osman Emre Turan, Oğuz Mısır, and Mustafa Özden |
 | Reference Python version | Python 3.12.4 |
 
@@ -142,7 +142,7 @@ Available modes:
 
 ## Reproducing the article analyses
 
-| Analysis | Full reproduction command | Generated output types |
+| Analysis | Evaluation command | Generated output types |
 |---|---|---|
 | Representative trajectories | `python -u patrollingAlgorithms.py single` | PNG trajectory figures and timing JSON files |
 | Main 100-episode comparison | `python -u patrollingAlgorithms.py test` | Per-environment JSON summaries and PNG box, raincloud, radar, normalized-bar, and metric plots |
@@ -150,7 +150,7 @@ Available modes:
 | Route and single-segment timing | `python -u patrollingAlgorithms.py segment_timing 100 all proposed_only` | Per-level checkpoint JSON files, CSV summaries, LaTeX-table file, and Markdown timing report |
 | Ablation analysis | `python -u patrollingAlgorithms.py ablation 30 all` | JSON results, CSV summary, LaTeX-table file, and Markdown ablation report |
 
-The full reproduction commands are computationally intensive. Run them only when sufficient CPU time is available and retain their generated files in a dedicated working directory.
+The evaluation commands are computationally intensive. Run them only when sufficient CPU time is available and retain their generated files in a dedicated working directory.
 
 ## 1. Representative trajectories
 
@@ -290,7 +290,7 @@ The evaluated variants are:
 
 The evaluation generates a JSON result file, CSV summary, LaTeX-table file, and Markdown report.
 
-## Smoke tests versus full reproduction
+## Smoke tests versus full evaluation
 
 Use reduced runs to check installation, multiprocessing, and output generation before starting full evaluations:
 
@@ -302,7 +302,7 @@ python -u patrollingAlgorithms.py ablation 1 Level-1
 
 These one-episode commands are software checks. They do **not** reproduce the sample sizes, statistical summaries, or conclusions reported in the article.
 
-Full reproduction uses:
+Full evaluation uses:
 
 ```bash
 python -u patrollingAlgorithms.py test
