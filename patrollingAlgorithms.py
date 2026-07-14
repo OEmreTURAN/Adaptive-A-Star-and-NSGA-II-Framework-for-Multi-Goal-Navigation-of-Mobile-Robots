@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 import heapq
 import time
 import json
+import csv
+import datetime
+import platform
 from scipy import interpolate
 import scipy.ndimage as ndi
 from deap import base, creator, tools, algorithms
@@ -209,6 +212,37 @@ def common_spline(control_points, num_samples=100, smoothing=0):
     except:
         return np.linspace(pts[0], pts[-1], num_samples)
 
+def _linear_resample_through_points(control_points, num_samples=100):
+    """Piecewise-linear path through control points for controlled B-Spline ablation."""
+    pts = np.array(control_points, dtype=float)
+    if len(pts) < 2:
+        return pts
+    if len(pts) == 2:
+        return np.linspace(pts[0], pts[1], num_samples)
+    seg_lens = np.sqrt(np.sum(np.diff(pts, axis=0) ** 2, axis=1))
+    cum_len = np.concatenate(([0.0], np.cumsum(seg_lens)))
+    total = cum_len[-1]
+    if total < 1e-9:
+        return np.repeat(pts[:1], num_samples, axis=0)
+    sample_s = np.linspace(0.0, total, num_samples)
+    y = np.interp(sample_s, cum_len, pts[:, 0])
+    x = np.interp(sample_s, cum_len, pts[:, 1])
+    result = np.column_stack((y, x))
+    result[:, 0] = np.clip(result[:, 0], 0, GRID_SIZE - 1)
+    result[:, 1] = np.clip(result[:, 1], 0, GRID_SIZE - 1)
+    result[0] = pts[0]
+    result[-1] = pts[-1]
+    return result
+
+
+def _trajectory_from_control_points(control_points, num_samples=100, smoothing=0,
+                                    spline_mode="bspline"):
+    """Return a path using either the default B-Spline or a reduced linear variant."""
+    mode = (spline_mode or "bspline").lower()
+    if mode in {"linear", "reduced", "reduced_bspline", "no_bspline"}:
+        return _linear_resample_through_points(control_points, num_samples)
+    return common_spline(control_points, num_samples=num_samples, smoothing=smoothing)
+
 def sparsify_path(path, min_dist=3.0):
     if len(path) < 2: return path
     new_path = [path[0]]
@@ -219,7 +253,7 @@ def sparsify_path(path, min_dist=3.0):
     return np.array(new_path)
 
 def curvature_limit_respline(path, num_samples=None):
-    """Re-spline the path with increasing smoothing until curvature ≤ MAX_CURVATURE.
+    """Re-spline the path with increasing smoothing until curvature â‰¤ MAX_CURVATURE.
     Returns the smoothest collision-free version found."""
     if num_samples is None:
         num_samples = len(path) if len(path) >= PLOT_SAMPLES else PLOT_SAMPLES
@@ -282,7 +316,7 @@ def smooth_path_kinematic(path, iterations=200, alpha=0.15, beta=0.50):
 def enforce_max_curvature(path, max_iters=20):
     """Directly enforce MAX_CURVATURE on the path by iteratively adjusting
     points where the turning angle exceeds the kinematic limit.
-    Uses the discrete approximation: curvature ≈ turning_angle / segment_length.
+    Uses the discrete approximation: curvature â‰ˆ turning_angle / segment_length.
     Collision-aware: only accepts moves that stay safe.
     Operates on ALL interior points including near-endpoints (indices 1..n-2)."""
     if len(path) < 3:
@@ -387,7 +421,7 @@ def ensure_collision_free(path):
     in_collision = dist_field[iy, ix] < safe_threshold
 
     if not np.any(in_collision):
-        # Already collision-free — apply curvature-limiting re-spline + kinematic smoothing
+        # Already collision-free â€” apply curvature-limiting re-spline + kinematic smoothing
         result = curvature_limit_respline(path)
         result = smooth_path_kinematic(result)
         result = enforce_max_curvature(result, max_iters=20)
@@ -553,7 +587,7 @@ def calculate_centering_score(path_coords, obstacles_list):
             total_risk += (1.0 / min_d) * w
     return total_risk
 
-def construct_adaptive_path(champion_inds, obstacles_list):
+def construct_adaptive_path(champion_inds, obstacles_list, spline_mode="bspline", temperature=0.3):
     """Build adaptive path as a smooth weighted blend of champion paths.
 
     Instead of discrete point-by-point selection (which causes abrupt
@@ -564,7 +598,7 @@ def construct_adaptive_path(champion_inds, obstacles_list):
     two-wheeled robots because the output varies smoothly in space."""
     interpolated_paths = []
     for ind in champion_inds:
-        pts = common_spline(ind, num_samples=PLOT_SAMPLES)
+        pts = _trajectory_from_control_points(ind, PLOT_SAMPLES, spline_mode=spline_mode)
         interpolated_paths.append(pts)
 
     min_len = min(len(p) for p in interpolated_paths)
@@ -585,14 +619,14 @@ def construct_adaptive_path(champion_inds, obstacles_list):
         scores[ci, unsafe] = 50.0
         scores[ci, oob] = 100.0
 
-    # Heavy temporal smoothing — prevents rapid weight fluctuation
+    # Heavy temporal smoothing â€” prevents rapid weight fluctuation
     kernel = max(min_len // 5, 80)
     for ci in range(n_champs):
         scores[ci] = ndi.uniform_filter1d(scores[ci].astype(float),
                                           size=kernel, mode='nearest')
 
-    # Softmin weights (low temperature → sharper selection of best champion)
-    temperature = 0.3
+    # Softmin weights (low temperature â†’ sharper selection of best champion)
+    temperature = max(float(temperature), 1e-6)
     neg = -scores / temperature
     neg -= np.max(neg, axis=0, keepdims=True)  # numerical stability
     w = np.exp(neg)
@@ -722,7 +756,7 @@ def run_ga_standard(start_node, goal_node, start_dir=None, goal_dir=None):
     def eval_ga(individual):
         sorted_ind = sorted(individual, key=lambda p: np.linalg.norm(np.array(p) - np.array(start_node)))
         full_pts = start_pts + sorted_ind + goal_pts
-        path = common_spline(full_pts, CHECK_SAMPLES)
+        path = _trajectory_from_control_points(full_pts, CHECK_SAMPLES)
         length = get_path_length(path)
         safety = check_safety_vectorized(path)
         smooth = get_smoothness_cost(path)
@@ -871,8 +905,8 @@ def solve_bio_hybrid_competitor(grid, inflated_grid, obstacles_list, start, goal
             population[i, j] = np.clip(base_ctrl[j] + noise, 0, GRID_SIZE - 1)
 
     # APF parameters (scaled for grid-cell units)
-    K_ATT = 0.3    # Attractive gain (ξ) — moderate pull toward goal
-    K_REP = 1.0    # Repulsive gain (η) — obstacle push
+    K_ATT = 0.3    # Attractive gain (Î¾) â€” moderate pull toward goal
+    K_REP = 1.0    # Repulsive gain (Î·) â€” obstacle push
     D0 = 4.0       # Repulsive influence distance (grid cells)
     APF_SCALE = 0.15  # Scale factor for APF force application
 
@@ -883,7 +917,7 @@ def solve_bio_hybrid_competitor(grid, inflated_grid, obstacles_list, start, goal
         """Evaluate a whale (set of control points) as a full spline path."""
         sorted_pts = ctrl_pts[np.argsort(np.linalg.norm(ctrl_pts - start_arr, axis=1))]
         full_pts = np.vstack([start_arr, sorted_pts, goal_arr])
-        path = common_spline(full_pts, CHECK_SAMPLES)
+        path = _trajectory_from_control_points(full_pts, CHECK_SAMPLES)
         length = get_path_length(path)
         safety = check_safety_vectorized(path)
         smooth = get_smoothness_cost(path)
@@ -892,8 +926,8 @@ def solve_bio_hybrid_competitor(grid, inflated_grid, obstacles_list, start, goal
 
     def compute_apf_force(point):
         """Compute combined APF force: attractive + repulsive.
-        Attractive: F_att = ξ · (q_goal - q) / |q_goal - q|
-        Repulsive:  F_rep = η · (1/d - 1/d0) · (1/d²) · n̂   when d < d0
+        Attractive: F_att = Î¾ Â· (q_goal - q) / |q_goal - q|
+        Repulsive:  F_rep = Î· Â· (1/d - 1/d0) Â· (1/dÂ²) Â· nÌ‚   when d < d0
         Force magnitude is clamped to avoid explosive jumps near obstacles.
         """
         # Attractive force toward goal
@@ -943,7 +977,7 @@ def solve_bio_hybrid_competitor(grid, inflated_grid, obstacles_list, start, goal
             for j in range(N_CTRL):
                 r1 = np.random.rand()
                 r2 = np.random.rand()
-                A_vec = 2 * a_coeff * r1 - a_coeff   # Eq: A = 2a·r - a
+                A_vec = 2 * a_coeff * r1 - a_coeff   # Eq: A = 2aÂ·r - a
                 C_vec = 2 * r2                        # Eq: C = 2r
                 p = np.random.rand()
                 l_param = np.random.uniform(-1, 1)
@@ -1046,8 +1080,8 @@ def run_ab_woa(start_node, goal_node, start_dir=None, goal_dir=None):
     return final_path, end_dir
 
 # --- 3. HWPSO (Paper: "Enhanced path planning algorithm via hybrid WOA-PSO") ---
-# Eq 15 (hybrid velocity): V = w·V + c1·r1·(Whale* - X_woa) + c2·r2·(gbest - X_woa)
-# Eq 20 (cost): f(·) = f_p · (1 + μ · v_L)
+# Eq 15 (hybrid velocity): V = wÂ·V + c1Â·r1Â·(Whale* - X_woa) + c2Â·r2Â·(gbest - X_woa)
+# Eq 20 (cost): f(Â·) = f_p Â· (1 + Î¼ Â· v_L)
 # WOA phases (Eq 10,11,14) use gbest as X*; PSO cognitive term uses Whale_Star (Eq 15)
 def run_woa_pso(start_node, goal_node, start_dir=None, goal_dir=None):
     POP_SIZE, MAX_ITER, DIM = 40, 30, 5 
@@ -1078,11 +1112,11 @@ def run_woa_pso(start_node, goal_node, start_dir=None, goal_dir=None):
     def evaluate(ind):
         pts = ind[np.argsort(np.linalg.norm(ind - np.array(start_node), axis=1))]
         full_pts = np.vstack([start_pts, pts, goal_pts])
-        path = common_spline(full_pts, CHECK_SAMPLES)
+        path = _trajectory_from_control_points(full_pts, CHECK_SAMPLES)
         f_p = get_path_length(path)
         v_L = calculate_violation_paper(path) # Uses SUM (tuned from paper's MEAN, Eq 18)
         
-        # Eq 20: cost = f_p * (1 + μ * v_L). Paper μ=100; tuned to 10000 for safety.
+        # Eq 20: cost = f_p * (1 + Î¼ * v_L). Paper Î¼=100; tuned to 10000 for safety.
         MU = 10000.0 
         cost = f_p * (1.0 + MU * v_L)
         
@@ -1107,7 +1141,7 @@ def run_woa_pso(start_node, goal_node, start_dir=None, goal_dir=None):
 
         for i in range(POP_SIZE):
             r1 = np.random.rand(); r2 = np.random.rand()
-            A = 2*a*r1 - a; C = 2*r2  # Eq 9: A = 2a·r-a, C = 2r
+            A = 2*a*r1 - a; C = 2*r2  # Eq 9: A = 2aÂ·r-a, C = 2r
             p = np.random.rand(); l = np.random.uniform(-1, 1); b = 1
             X_woa = X[i].copy()
             if p < 0.5:
@@ -1144,6 +1178,11 @@ def run_nsga_ii(start_node, goal_node, start_dir=None, goal_dir=None, **kwargs):
     indpb      = kwargs.get('indpb', 0.2)
     seed_ratio = kwargs.get('seed_ratio', 0.7)   # fraction of pop seeded from A*
     n_ctrl_pts = kwargs.get('n_ctrl_pts', 5)      # number of interior control points
+    spline_mode = kwargs.get('spline_mode', 'bspline')
+    objective_mode = kwargs.get('objective_mode', 'five_objective')
+    adaptive_mode = kwargs.get('adaptive_mode', 'softmin')
+    postprocess_enabled = kwargs.get('postprocess_enabled', True)
+    softmin_temperature = kwargs.get('softmin_temperature', 0.3)
 
     raw_path = a_star(grid, start_node, goal_node)
     if raw_path and len(raw_path) > (n_ctrl_pts + 3):
@@ -1165,7 +1204,7 @@ def run_nsga_ii(start_node, goal_node, start_dir=None, goal_dir=None, **kwargs):
     if goal_dir is not None:
         approach_dir = np.array(goal_dir, dtype=float)
     else:
-        # Fallback: approach from start→goal direction
+        # Fallback: approach from startâ†’goal direction
         sg_vec = np.array(goal_node) - np.array(start_node)
         sg_norm = np.linalg.norm(sg_vec)
         approach_dir = sg_vec / sg_norm if sg_norm > 1e-6 else np.array([0.0, 1.0])
@@ -1181,7 +1220,7 @@ def run_nsga_ii(start_node, goal_node, start_dir=None, goal_dir=None, **kwargs):
 
     def eval_nsga(ind):
         full_pts = start_pts_fixed + list(ind) + goal_pts_fixed
-        path = common_spline(full_pts, CHECK_SAMPLES)
+        path = _trajectory_from_control_points(full_pts, CHECK_SAMPLES, spline_mode=spline_mode)
         length = get_path_length(path)
         
         # Kinematic: both max-curvature and integral penalty
@@ -1210,6 +1249,8 @@ def run_nsga_ii(start_node, goal_node, start_dir=None, goal_dir=None, **kwargs):
         if start_dir is not None:
             safety_pen += check_forward_motion(path, start_dir)
         
+        if objective_mode == "length_only":
+            return (length, length, length, length, length)
         return (length, max_k_penalty, effort, center, safety_pen)
 
     def mut_nsga(ind, _indpb=None):
@@ -1269,30 +1310,44 @@ def run_nsga_ii(start_node, goal_node, start_dir=None, goal_dir=None, **kwargs):
         start_pts_fixed + list(best_safe) + goal_pts_fixed
     ]
     
-    adaptive_coords = construct_adaptive_path(champions, obstacles_list)
-    # adaptive_coords is ~100 smooth control points; use approximating spline
-    # (smoothing > 0) to suppress residual noise and prevent cubic overshoot
-    if len(adaptive_coords) > 2:
-        path_adaptive = ensure_collision_free(
-            common_spline(adaptive_coords, PLOT_SAMPLES,
-                          smoothing=len(adaptive_coords) * 0.5))
+    if adaptive_mode == "fixed_length_champion":
+        adaptive_coords = champions[0]
+    elif adaptive_mode == "fixed_safety_champion":
+        adaptive_coords = champions[4]
     else:
-        path_adaptive = ensure_collision_free(common_spline(champions[0], PLOT_SAMPLES))
+        adaptive_coords = construct_adaptive_path(
+            champions, obstacles_list, spline_mode=spline_mode,
+            temperature=softmin_temperature)
 
-    # Multi-pass kinematic pipeline:
-    # 1. Vectorized smoothing (fast convergence, 500 iters each)
-    # 2. Direct curvature enforcement to fix remaining violations
-    # 3. Final re-spline to guarantee smooth output
-    for _ in range(3):
-        path_adaptive = smooth_path_kinematic(path_adaptive, iterations=500,
-                                              alpha=0.25, beta=0.60)
-        path_adaptive = enforce_max_curvature(path_adaptive, max_iters=30)
-    path_adaptive = curvature_limit_respline(path_adaptive)
-    path_adaptive = _escape_obstacles(path_adaptive)
+    # adaptive_coords is about 100 smooth control points in the full method; use
+    # approximating spline only when the B-Spline representation is enabled.
+    adaptive_smoothing = len(adaptive_coords) * 0.5 if (spline_mode or "").lower() == "bspline" else 0
+    if len(adaptive_coords) > 2:
+        path_adaptive = _trajectory_from_control_points(
+            adaptive_coords, PLOT_SAMPLES, smoothing=adaptive_smoothing,
+            spline_mode=spline_mode)
+    else:
+        path_adaptive = _trajectory_from_control_points(
+            champions[0], PLOT_SAMPLES, spline_mode=spline_mode)
+
+    if postprocess_enabled:
+        path_adaptive = ensure_collision_free(path_adaptive)
+        # Multi-pass kinematic pipeline:
+        # 1. Vectorized smoothing (fast convergence, 500 iters each)
+        # 2. Direct curvature enforcement to fix remaining violations
+        # 3. Final re-spline to guarantee smooth output
+        for _ in range(3):
+            path_adaptive = smooth_path_kinematic(path_adaptive, iterations=500,
+                                                  alpha=0.25, beta=0.60)
+            path_adaptive = enforce_max_curvature(path_adaptive, max_iters=30)
+        path_adaptive = curvature_limit_respline(path_adaptive)
+        path_adaptive = _escape_obstacles(path_adaptive)
 
     paths = {}
     for key, champ in zip(["Length", "Smooth", "Effort", "Centered", "Safe"], champions):
-        p = ensure_collision_free(common_spline(champ, PLOT_SAMPLES))
+        p = _trajectory_from_control_points(champ, PLOT_SAMPLES, spline_mode=spline_mode)
+        if postprocess_enabled:
+            p = ensure_collision_free(p)
         p[0] = np.array(start_node, dtype=float)
         p[-1] = np.array(goal_node, dtype=float)
         paths[key] = p
@@ -1408,7 +1463,7 @@ def create_patrol_environment(difficulty):
 
         # --- (1) SHELF UNITS: Three rows on left, two on right ---
         # Creates narrow aisles the robot must navigate through.
-        # Aisle width ≈ 7-10 cells (0.7-1.0 m) — passable but demanding.
+        # Aisle width â‰ˆ 7-10 cells (0.7-1.0 m) â€” passable but demanding.
 
         # Left-side shelves (three rows)
         g[8:14, 3:7] = 1       # Shelf A1  (bottom-left)
@@ -1426,7 +1481,7 @@ def create_patrol_environment(difficulty):
 
         # --- (2) CENTRAL PARTITION WALL with narrow doorway ---
         # A vertical wall that divides the map into west/east halves.
-        # Doorway gap: rows 22-28 (7 cells ≈ 0.7 m effective width).
+        # Doorway gap: rows 22-28 (7 cells â‰ˆ 0.7 m effective width).
         # Center clearance = 3.5 cells (0.35 m) > MIN_SAFE_DIST (0.3 m).
         g[10:22, 24:27] = 1    # Lower wall section
         g[29:40, 24:27] = 1    # Upper wall section
@@ -1476,13 +1531,13 @@ def create_patrol_environment(difficulty):
 
         # --- EIGHT PATROL WAYPOINTS (interior + edge) ---
         # Forces the robot through every constrained mid-section:
-        #   • Shelf aisles (WP2 between A-row shelves, WP8 between B/C shelves)
-        #   • Central doorway bottleneck (WP4)
-        #   • Near U-shape trap (WP3 sits just above the U opening)
-        #   • Inside C-shape concavity (WP6 — must enter AND exit)
-        #   • Close to pillars (WP2 near pillar@18,10; WP5 near pillar@18,40;
+        #   â€¢ Shelf aisles (WP2 between A-row shelves, WP8 between B/C shelves)
+        #   â€¢ Central doorway bottleneck (WP4)
+        #   â€¢ Near U-shape trap (WP3 sits just above the U opening)
+        #   â€¢ Inside C-shape concavity (WP6 â€” must enter AND exit)
+        #   â€¢ Close to pillars (WP2 near pillar@18,10; WP5 near pillar@18,40;
         #     WP8 near pillar@32,10)
-        # The loop 1→2→3→4→5→6→7→8→1 requires ≥4 crossings of the
+        # The loop 1â†’2â†’3â†’4â†’5â†’6â†’7â†’8â†’1 requires â‰¥4 crossings of the
         # central partition and navigation through every tight zone.
         waypoints = [
             (2, 2),       # WP1: Bottom-left corner (open start area)
@@ -1516,7 +1571,7 @@ def create_patrol_environment(difficulty):
 
     return g, final_waypoints
 
-def solve_patrol_single(algo_func, waypoints):
+def solve_patrol_single(algo_func, waypoints, timing_records=None, timing_context=None):
     full_path = []
     targets = waypoints.copy()
     targets.append(waypoints[0]) 
@@ -1534,7 +1589,12 @@ def solve_patrol_single(algo_func, waypoints):
         gd_vec = next_after - np.array(end, dtype=float)
         gd_norm = np.linalg.norm(gd_vec)
         goal_dir = gd_vec / gd_norm if gd_norm > 1e-6 else curr_dir
+        segment_t0 = time.perf_counter()
         segment, end_dir = algo_func(start, end, start_dir=curr_dir, goal_dir=goal_dir)
+        segment_elapsed = time.perf_counter() - segment_t0
+        if timing_records is not None:
+            _append_segment_timing(timing_records, timing_context, i, start, end,
+                                   segment_elapsed)
         # Guarantee segment endpoints match waypoints exactly
         segment[0] = np.array(start, dtype=float)
         segment[-1] = np.array(end, dtype=float)
@@ -1546,11 +1606,12 @@ def solve_patrol_single(algo_func, waypoints):
         else: full_path = np.vstack((full_path, segment[1:]))
     return full_path
 
-def solve_patrol_nsga_all(waypoints, **nsga_kwargs):
+def solve_patrol_nsga_all(waypoints, timing_records=None, timing_context=None, **nsga_kwargs):
     full_paths = {k: [] for k in ["Length", "Smooth", "Effort", "Centered", "Safe", "Adaptive"]}
     targets = waypoints.copy()
     targets.append(waypoints[0])
     curr_dir = FIXED_START_DIR.copy()
+    postprocess_enabled = nsga_kwargs.get("postprocess_enabled", True)
     # Track junction indices for post-smoothing
     junction_indices = {k: [] for k in full_paths}
     for i in range(len(targets) - 1):
@@ -1564,7 +1625,17 @@ def solve_patrol_nsga_all(waypoints, **nsga_kwargs):
         gd_vec = next_after - np.array(end, dtype=float)
         gd_norm = np.linalg.norm(gd_vec)
         goal_dir = gd_vec / gd_norm if gd_norm > 1e-6 else curr_dir
+        segment_t0 = time.perf_counter()
         seg_dict, end_dir = run_nsga_ii(start, end, start_dir=curr_dir, goal_dir=goal_dir, **nsga_kwargs)
+        segment_elapsed = time.perf_counter() - segment_t0
+        if timing_records is not None:
+            _append_segment_timing(
+                timing_records, timing_context, i, start, end, segment_elapsed,
+                generated_outputs=[
+                    "NSGA-II Length", "NSGA-II Smooth", "NSGA-II Effort",
+                    "NSGA-II Centered", "NSGA-II Safe", "NSGA-II Adaptive"
+                ]
+            )
         # Use the planned arrival heading as next departure direction
         curr_dir = goal_dir
         for k in full_paths:
@@ -1577,35 +1648,36 @@ def solve_patrol_nsga_all(waypoints, **nsga_kwargs):
                 junction_indices[k].append(len(full_paths[k]) - 1)
                 full_paths[k] = np.vstack((full_paths[k], seg_dict[k][1:]))
 
-    # Post-concatenation junction smoothing for the Adaptive path
-    # This eliminates sharp turns where segments meet at waypoints
-    for k in ["Adaptive"]:
-        path = full_paths[k]
-        if len(path) < 10:
-            continue
-        for jidx in junction_indices[k]:
-            # Smooth a local window around each junction
-            window = min(80, len(path) // 8)  # ~80 points each side
-            lo = max(1, jidx - window)
-            hi = min(len(path) - 2, jidx + window)
-            if hi - lo < 4:
+    if postprocess_enabled:
+        # Post-concatenation junction smoothing for the Adaptive path
+        # This eliminates sharp turns where segments meet at waypoints
+        for k in ["Adaptive"]:
+            path = full_paths[k]
+            if len(path) < 10:
                 continue
-            # Local iterative smoothing
-            safe_threshold = MIN_SAFE_DIST / GRID_RES
-            for _ in range(300):
-                new_seg = path[lo:hi+1].copy()
-                for j in range(1, len(new_seg) - 1):
-                    avg = (new_seg[j-1] + new_seg[j+1]) / 2.0
-                    cand = new_seg[j] + 0.5 * (avg - new_seg[j])
-                    cand[0] = np.clip(cand[0], 0, GRID_SIZE - 1)
-                    cand[1] = np.clip(cand[1], 0, GRID_SIZE - 1)
-                    cy = int(np.clip(round(cand[0]), 0, GRID_SIZE - 1))
-                    cx = int(np.clip(round(cand[1]), 0, GRID_SIZE - 1))
-                    if dist_field[cy, cx] >= safe_threshold:
-                        new_seg[j] = cand
-                path[lo:hi+1] = new_seg
-        # Apply global curvature enforcement after junction smoothing
-        full_paths[k] = enforce_max_curvature(path, max_iters=30)
+            for jidx in junction_indices[k]:
+                # Smooth a local window around each junction
+                window = min(80, len(path) // 8)  # about 80 points each side
+                lo = max(1, jidx - window)
+                hi = min(len(path) - 2, jidx + window)
+                if hi - lo < 4:
+                    continue
+                # Local iterative smoothing
+                safe_threshold = MIN_SAFE_DIST / GRID_RES
+                for _ in range(300):
+                    new_seg = path[lo:hi+1].copy()
+                    for j in range(1, len(new_seg) - 1):
+                        avg = (new_seg[j-1] + new_seg[j+1]) / 2.0
+                        cand = new_seg[j] + 0.5 * (avg - new_seg[j])
+                        cand[0] = np.clip(cand[0], 0, GRID_SIZE - 1)
+                        cand[1] = np.clip(cand[1], 0, GRID_SIZE - 1)
+                        cy = int(np.clip(round(cand[0]), 0, GRID_SIZE - 1))
+                        cx = int(np.clip(round(cand[1]), 0, GRID_SIZE - 1))
+                        if dist_field[cy, cx] >= safe_threshold:
+                            new_seg[j] = cand
+                    path[lo:hi+1] = new_seg
+            # Apply global curvature enforcement after junction smoothing
+            full_paths[k] = enforce_max_curvature(path, max_iters=30)
     return full_paths
 
 def plot_boxplot(all_distances, diff, algo_names, algo_colors):
@@ -1623,9 +1695,10 @@ def plot_boxplot(all_distances, diff, algo_names, algo_colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.7)
     
-    ax.set_xticklabels(algo_names, rotation=35, ha='right', fontsize=9)
-    ax.set_ylabel('Path Distance (m)', fontsize=12)
-    #ax.set_title(f'Path Distance Distribution — {diff} (100 epochs, no fixed seed)', fontsize=13)
+    ax.set_xticklabels(algo_names, rotation=35, ha='right', fontsize=14)
+    ax.set_ylabel('Path Distance (m)', fontsize=16)
+    ax.tick_params(axis='y', labelsize=14)
+    #ax.set_title(f'Path Distance Distribution â€” {diff} (100 epochs, no fixed seed)', fontsize=13)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
     fig.tight_layout()
     fig.savefig(f"Boxplot_{diff}.png", dpi=300)
@@ -1671,9 +1744,10 @@ def plot_raincloud(all_distances, diff, algo_names, algo_colors):
         patch.set_alpha(0.9)
 
     ax.set_xticks(positions)
-    ax.set_xticklabels(algo_names, rotation=35, ha='right', fontsize=9)
-    ax.set_ylabel('Path Distance (m)', fontsize=12)
-    #ax.set_title(f'Raincloud — Path Distance Distribution — {diff} (100 epochs, no fixed seed)', fontsize=13)
+    ax.set_xticklabels(algo_names, rotation=35, ha='right', fontsize=14)
+    ax.set_ylabel('Path Distance (m)', fontsize=16)
+    ax.tick_params(axis='y', labelsize=14)
+    #ax.set_title(f'Raincloud â€” Path Distance Distribution â€” {diff} (100 epochs, no fixed seed)', fontsize=13)
     ax.grid(axis='y', alpha=0.3, linestyle='--')
     fig.tight_layout()
     fig.savefig(f"Raincloud_{diff}.png", dpi=300)
@@ -1681,15 +1755,154 @@ def plot_raincloud(all_distances, diff, algo_names, algo_colors):
     print(f"  Saved Raincloud_{diff}.png")
 
 
+def plot_metric_boxplots(all_metrics, diff, algo_names, algo_colors):
+    """Box plots for each metric (curvature, clearance, smoothness, effort, centering)."""
+    PLOTS = [
+        ("max_curvature", "Max Curvature (1/m)", MAX_CURVATURE),
+        ("min_clearance", "Min Obstacle Clearance (m)", MIN_SAFE_DIST),
+        ("smoothness", "Smoothness Cost (rad)", None),
+        ("wheel_effort", "Wheel Effort", None),
+        ("centering", "Centering Score", None),
+    ]
+    for metric_key, ylabel, threshold in PLOTS:
+        fig, ax = plt.subplots(figsize=(14, 7))
+        data = [all_metrics[metric_key][name] for name in algo_names]
+
+        bp = ax.boxplot(data, patch_artist=True, notch=True, widths=0.6,
+                        medianprops=dict(color='black', linewidth=1.5),
+                        whiskerprops=dict(linewidth=1.2),
+                        capprops=dict(linewidth=1.2),
+                        flierprops=dict(marker='o', markersize=4, alpha=0.5))
+
+        for patch, color in zip(bp['boxes'], [algo_colors[n] for n in algo_names]):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+
+        if threshold is not None:
+            ax.axhline(y=threshold, color='red', linestyle='--', linewidth=1.5,
+                       label=f'Threshold = {threshold:.2f}')
+            ax.legend(fontsize=12)
+
+        ax.set_xticklabels(algo_names, rotation=35, ha='right', fontsize=14)
+        ax.set_ylabel(ylabel, fontsize=16)
+        ax.tick_params(axis='y', labelsize=14)
+        ax.grid(axis='y', alpha=0.3, linestyle='--')
+        fig.tight_layout()
+        fname = f"Boxplot_{metric_key}_{diff}.png"
+        fig.savefig(fname, dpi=300)
+        plt.close(fig)
+        print(f"  Saved {fname}")
+
+
+def plot_radar_chart(all_metrics, diff, algo_names, algo_colors):
+    """Radar/spider chart comparing all algorithms across normalized metrics."""
+    RADAR_METRICS = ["distance", "max_curvature", "smoothness", "wheel_effort", "centering"]
+    RADAR_LABELS = ["Path Length", "Max Curvature", "Smoothness", "Wheel Effort", "Centering"]
+
+    # Compute mean per algorithm per metric
+    means = {}
+    for name in algo_names:
+        means[name] = [float(np.mean(all_metrics[mk][name])) for mk in RADAR_METRICS]
+
+    # Normalize: for each metric, divide by the max across algorithms (lower = better)
+    n_metrics = len(RADAR_METRICS)
+    max_vals = []
+    for j in range(n_metrics):
+        mv = max(means[name][j] for name in algo_names)
+        max_vals.append(mv if mv > 1e-12 else 1.0)
+    norm_means = {}
+    for name in algo_names:
+        norm_means[name] = [means[name][j] / max_vals[j] for j in range(n_metrics)]
+
+    # Radar plot
+    angles = np.linspace(0, 2 * np.pi, n_metrics, endpoint=False).tolist()
+    angles += angles[:1]  # close the polygon
+
+    fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(polar=True))
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_rlabel_position(0)
+
+    for name in algo_names:
+        values = norm_means[name] + norm_means[name][:1]
+        ax.plot(angles, values, 'o-', linewidth=1.5, label=name, color=algo_colors[name])
+        ax.fill(angles, values, alpha=0.08, color=algo_colors[name])
+
+    ax.set_thetagrids(np.degrees(angles[:-1]), RADAR_LABELS, fontsize=13)
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.35, 1.1), fontsize=10)
+    fig.tight_layout()
+    fname = f"Radar_{diff}.png"
+    fig.savefig(fname, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved {fname}")
+
+
+def plot_normalized_bar_chart(all_metrics, diff, algo_names, algo_colors):
+    """Grouped bar chart with normalized metric values (best=1.0 per metric)."""
+    METRICS = ["distance", "max_curvature", "min_clearance", "smoothness", "wheel_effort"]
+    LABELS = ["Path Length", "Max Curvature", "Min Clearance\n(higher=better)", "Smoothness", "Wheel Effort"]
+
+    means = {}
+    for name in algo_names:
+        means[name] = [float(np.mean(all_metrics[mk][name])) for mk in METRICS]
+
+    # Normalize: each metric scaled so best algorithm = 1.0
+    n_m = len(METRICS)
+    best_vals = []
+    for j in range(n_m):
+        if METRICS[j] == "min_clearance":
+            # higher is better -> best = max
+            best_vals.append(max(means[name][j] for name in algo_names))
+        else:
+            # lower is better -> best = min
+            best_vals.append(min(means[name][j] for name in algo_names))
+
+    norm = {}
+    for name in algo_names:
+        row = []
+        for j in range(n_m):
+            bv = best_vals[j] if best_vals[j] > 1e-12 else 1.0
+            if METRICS[j] == "min_clearance":
+                row.append(means[name][j] / bv)  # higher = 1.0
+            else:
+                row.append(bv / means[name][j] if means[name][j] > 1e-12 else 0.0)  # lower = 1.0
+            row[-1] = min(row[-1], 1.0)
+        norm[name] = row
+
+    x = np.arange(n_m)
+    width = 0.08
+    n_algos = len(algo_names)
+    offsets = np.linspace(-(n_algos - 1) / 2 * width, (n_algos - 1) / 2 * width, n_algos)
+
+    fig, ax = plt.subplots(figsize=(16, 7))
+    for i, name in enumerate(algo_names):
+        ax.bar(x + offsets[i], norm[name], width, label=name,
+               color=algo_colors[name], edgecolor='black', linewidth=0.3)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(LABELS, fontsize=13)
+    ax.set_ylabel('Normalized Score (1.0 = best)', fontsize=14)
+    ax.set_ylim(0, 1.1)
+    ax.axhline(y=1.0, color='gray', linestyle=':', linewidth=1)
+    ax.legend(fontsize=9, ncol=3, loc='lower right')
+    ax.grid(axis='y', alpha=0.3, linestyle='--')
+    fig.tight_layout()
+    fname = f"NormalizedBar_{diff}.png"
+    fig.savefig(fname, dpi=300)
+    plt.close(fig)
+    print(f"  Saved {fname}")
+
+
 # ---------------------------------------------------------
-# MODE 1: SINGLE EPOCH — path figures (like original)
+# MODE 1: SINGLE EPOCH â€” path figures (like original)
 # ---------------------------------------------------------
 def run_single_epoch_mode():
     """Run 1 epoch per environment with a fixed seed, produce path overlay figures."""
     seedno = 50
     random.seed(seedno); np.random.seed(seedno)
     global grid, dist_field
-    ENV_DIFFICULTIES = ["Easy", "Moderate-I", "Moderate-II", "Moderate-III", "Hard"]
+    ENV_DIFFICULTIES = ["Easy", "Moderate-I", "Moderate-III", "Moderate-II", "Hard"]
     timing_results = {}
 
     for diff in ENV_DIFFICULTIES:
@@ -1803,8 +2016,25 @@ def run_single_epoch_mode():
     print("\nSingle-epoch mode complete.")
 
 
+def compute_all_metrics(path):
+    """Compute all comparison metrics for a given path.
+    Returns dict with distance, max_curvature, min_clearance, smoothness, wheel_effort."""
+    obstacles_list = np.argwhere(grid == 1)
+    iy = np.clip(np.round(path[:, 0]).astype(int), 0, GRID_SIZE - 1)
+    ix = np.clip(np.round(path[:, 1]).astype(int), 0, GRID_SIZE - 1)
+    dists_m = dist_field[iy, ix] * GRID_RES
+    return {
+        "distance": get_path_length(path),
+        "max_curvature": get_max_curvature(path),
+        "min_clearance": float(np.min(dists_m)),
+        "smoothness": get_smoothness_cost(path),
+        "wheel_effort": calculate_wheel_effort(path),
+        "centering": calculate_centering_score(path, obstacles_list),
+    }
+
+
 # ---------------------------------------------------------
-# MODE 2: 100-EPOCH TEST — boxplot & raincloud
+# MODE 2: 100-EPOCH TEST â€” boxplot & raincloud
 # ---------------------------------------------------------
 def _test_epoch_worker(args):
     """Worker for a single test-mode epoch. Runs ALL algorithms and returns results.
@@ -1823,15 +2053,15 @@ def _test_epoch_worker(args):
     # --- Run Competitors ---
     t0 = time.time()
     p_ga = solve_patrol_single(run_ga_standard, waypoints)
-    result["Standard GA"] = {"distance": get_path_length(p_ga), "time": time.time() - t0}
+    result["Standard GA"] = {**compute_all_metrics(p_ga), "time": time.time() - t0}
 
     t0 = time.time()
     p_ab = solve_patrol_single(run_ab_woa, waypoints)
-    result["AB-WOA-APF"] = {"distance": get_path_length(p_ab), "time": time.time() - t0}
+    result["AB-WOA-APF"] = {**compute_all_metrics(p_ab), "time": time.time() - t0}
 
     t0 = time.time()
     p_wp = solve_patrol_single(run_woa_pso, waypoints)
-    result["HWPSO"] = {"distance": get_path_length(p_wp), "time": time.time() - t0}
+    result["HWPSO"] = {**compute_all_metrics(p_wp), "time": time.time() - t0}
 
     # --- Run NSGA-II ---
     t0 = time.time()
@@ -1839,7 +2069,7 @@ def _test_epoch_worker(args):
     t_nsga = time.time() - t0
 
     for k in ["Length", "Smooth", "Effort", "Centered", "Safe", "Adaptive"]:
-        result[f"NSGA-II {k}"] = {"distance": get_path_length(p_nsga[k]), "time": t_nsga}
+        result[f"NSGA-II {k}"] = {**compute_all_metrics(p_nsga[k]), "time": t_nsga}
 
     # Collision check
     def _count_col(p):
@@ -1859,10 +2089,10 @@ def run_test_mode(num_epochs=100):
     Uses multiprocessing to parallelize epochs across CPU cores."""
     global grid, dist_field
 
-    n_workers = max(1, os.cpu_count() - 1)
-    print(f"Detected {os.cpu_count()} CPU cores — using {n_workers} parallel workers")
+    n_workers = max(1, os.cpu_count() - 2)
+    print(f"Detected {os.cpu_count()} CPU cores â€” using {n_workers} parallel workers")
 
-    ENV_DIFFICULTIES = ["Easy", "Moderate-I", "Moderate-II", "Moderate-III", "Hard"]
+    ENV_DIFFICULTIES = ["Easy", "Moderate-I", "Moderate-III", "Moderate-II", "Hard"]
 
     ALGO_NAMES = [
         "Standard GA", "AB-WOA-APF", "HWPSO",
@@ -1883,15 +2113,17 @@ def run_test_mode(num_epochs=100):
 
     for diff in ENV_DIFFICULTIES:
         print(f"\n{'='*60}")
-        print(f"Environment: {diff}  —  {num_epochs} epochs (no fixed seed)")
+        print(f"Environment: {diff}  â€”  {num_epochs} epochs (no fixed seed)")
         print(f"{'='*60}")
 
         # Set global state for single-process fallback
         grid, waypoints = create_patrol_environment(diff)
         dist_field = ndi.distance_transform_edt(1 - grid)
 
-        # Storage for distances across epochs
-        all_distances = {name: [] for name in ALGO_NAMES}
+        # Storage for all metrics across epochs
+        METRIC_KEYS = ["distance", "max_curvature", "min_clearance", "smoothness", "wheel_effort", "centering"]
+        all_metrics = {mk: {name: [] for name in ALGO_NAMES} for mk in METRIC_KEYS}
+        all_distances = {name: [] for name in ALGO_NAMES}  # kept for backward compat
         all_times = {name: [] for name in ALGO_NAMES}
 
         # Build tasks
@@ -1937,27 +2169,46 @@ def run_test_mode(num_epochs=100):
             for name in ALGO_NAMES:
                 all_distances[name].append(result[name]["distance"])
                 all_times[name].append(result[name]["time"])
+                for mk in METRIC_KEYS:
+                    all_metrics[mk][name].append(result[name][mk])
 
-        # --- Summary statistics ---
-        print(f"\n  === Distance Summary for {diff} (meters) ===")
-        print(f"  {'Algorithm':25s}  {'Mean':>8s}  {'Std':>8s}  {'Min':>8s}  {'Max':>8s}  {'Median':>8s}")
-        summary = {}
-        for name in ALGO_NAMES:
-            arr = np.array(all_distances[name])
-            summary[name] = {
-                "mean": float(np.mean(arr)),
-                "std": float(np.std(arr)),
-                "min": float(np.min(arr)),
-                "max": float(np.max(arr)),
-                "median": float(np.median(arr)),
-                "all": [float(v) for v in arr],
-            }
-            print(f"  {name:25s}  {np.mean(arr):8.2f}  {np.std(arr):8.2f}  "
-                  f"{np.min(arr):8.2f}  {np.max(arr):8.2f}  {np.median(arr):8.2f}")
+        # --- Summary statistics for all metrics ---
+        METRIC_LABELS = {
+            "distance": ("Distance", "m"),
+            "max_curvature": ("Max Curvature", "1/m"),
+            "min_clearance": ("Min Clearance", "m"),
+            "smoothness": ("Smoothness", "rad"),
+            "wheel_effort": ("Wheel Effort", "-"),
+            "centering": ("Centering", "-"),
+        }
+        full_summary = {}
+        for mk in METRIC_KEYS:
+            label, unit = METRIC_LABELS[mk]
+            print(f"\n  === {label} Summary for {diff} ({unit}) ===")
+            print(f"  {'Algorithm':25s}  {'Mean':>10s}  {'Std':>10s}  {'Min':>10s}  {'Max':>10s}  {'Median':>10s}")
+            mk_summary = {}
+            for name in ALGO_NAMES:
+                arr = np.array(all_metrics[mk][name])
+                mk_summary[name] = {
+                    "mean": float(np.mean(arr)),
+                    "std": float(np.std(arr)),
+                    "min": float(np.min(arr)),
+                    "max": float(np.max(arr)),
+                    "median": float(np.median(arr)),
+                    "all": [float(v) for v in arr],
+                }
+                print(f"  {name:25s}  {np.mean(arr):10.4f}  {np.std(arr):10.4f}  "
+                      f"{np.min(arr):10.4f}  {np.max(arr):10.4f}  {np.median(arr):10.4f}")
+            full_summary[mk] = mk_summary
 
-        # Save raw data as JSON
+        # Save raw data as JSON (all metrics)
+        with open(f"all_metrics_{diff}.json", "w") as f:
+            json.dump(full_summary, f, indent=4)
+        print(f"  Saved all_metrics_{diff}.json")
+
+        # Save distances separately for backward compatibility
         with open(f"distances_{diff}.json", "w") as f:
-            json.dump(summary, f, indent=4)
+            json.dump(full_summary["distance"], f, indent=4)
         print(f"  Saved distances_{diff}.json")
 
         # Save timing data
@@ -1975,6 +2226,9 @@ def run_test_mode(num_epochs=100):
         # --- Plots ---
         plot_boxplot(all_distances, diff, ALGO_NAMES, ALGO_COLORS)
         plot_raincloud(all_distances, diff, ALGO_NAMES, ALGO_COLORS)
+        plot_metric_boxplots(all_metrics, diff, ALGO_NAMES, ALGO_COLORS)
+        plot_radar_chart(all_metrics, diff, ALGO_NAMES, ALGO_COLORS)
+        plot_normalized_bar_chart(all_metrics, diff, ALGO_NAMES, ALGO_COLORS)
 
     print("\nTest mode complete.")
 
@@ -1983,36 +2237,24 @@ def run_test_mode(num_epochs=100):
 # MODE 3: SENSITIVITY ANALYSIS for A* Initialized NSGA-II
 # ---------------------------------------------------------
 def _evaluate_nsga_path(path):
-    """Compute evaluation metrics for a single NSGA-II patrol path.
-    Returns dict with distance, max_curvature, safety, and collision flag."""
-    length = get_path_length(path)
-    max_k = get_max_curvature(path)
-
-    # Safety: minimum clearance along the path (metres)
+    """Compute sensitivity metrics for one NSGA-II Adaptive patrol path."""
+    metrics = compute_all_metrics(path)
     iy = np.clip(np.round(path[:, 0]).astype(int), 0, GRID_SIZE - 1)
     ix = np.clip(np.round(path[:, 1]).astype(int), 0, GRID_SIZE - 1)
-    dists_m = dist_field[iy, ix] * GRID_RES
-    min_clearance = float(np.min(dists_m))
-
-    # Collision: actual obstacle cell penetration
     collision = int(np.sum(grid[iy, ix] == 1))
-
-    return {
-        "distance": length,
-        "max_curvature": max_k,
-        "min_clearance": min_clearance,
-        "collision_pts": collision,
-    }
+    metrics["collision_count"] = collision
+    metrics["collision_pts"] = collision  # Backward-compatible alias used by existing plots/logs.
+    return metrics
 
 
 def plot_sensitivity(results, param_name, param_values, env_name, metrics_to_plot=None):
-    """No-op — all plotting handled by plot_sensitivity_all."""
+    """No-op â€” all plotting handled by plot_sensitivity_all."""
     pass
 
 
 def plot_sensitivity_combined(all_env_results, param_name, param_values,
                               env_names, metrics_to_plot=None):
-    """No-op — all plotting handled by plot_sensitivity_all."""
+    """No-op â€” all plotting handled by plot_sensitivity_all."""
     pass
 
 
@@ -2127,10 +2369,270 @@ def _sensitivity_worker(args):
 
     m = _evaluate_nsga_path(p_nsga["Adaptive"])
     m["computation_time"] = elapsed
+    m["seed"] = int(epoch_seed)
     return m
 
 
-def run_sensitivity_mode(num_epochs=10):
+SENSITIVITY_BASE_SEED = 20260703
+SENSITIVITY_RHO_TAU_PARAMS = {"A* Seed Ratio", "Softmin Temperature"}
+SENSITIVITY_METRIC_FIELDS = [
+    ("distance", "path_length"),
+    ("max_curvature", "maximum_curvature"),
+    ("min_clearance", "minimum_clearance"),
+    ("smoothness", "smoothness"),
+    ("wheel_effort", "wheel_effort"),
+    ("centering", "centering"),
+    ("computation_time", "computation_time_seconds"),
+]
+
+
+def _sensitivity_env_configs():
+    return [
+        {"index": 0, "manuscript_environment": "Level-1", "internal_environment": "Easy"},
+        {"index": 1, "manuscript_environment": "Level-2", "internal_environment": "Moderate-I"},
+        {"index": 2, "manuscript_environment": "Level-3", "internal_environment": "Moderate-III"},
+        {"index": 3, "manuscript_environment": "Level-4", "internal_environment": "Moderate-II"},
+        {"index": 4, "manuscript_environment": "Level-5", "internal_environment": "Hard"},
+    ]
+
+
+def _select_sensitivity_sweeps(param_sweeps, scope):
+    normalized = (scope or "all").lower()
+    if normalized in {"all", "full"}:
+        return param_sweeps
+    if normalized in {"rho_tau", "rhotau"}:
+        return {k: v for k, v in param_sweeps.items() if k in SENSITIVITY_RHO_TAU_PARAMS}
+    if normalized in {"rho", "seed", "seed_ratio"}:
+        return {"A* Seed Ratio": param_sweeps["A* Seed Ratio"]}
+    if normalized in {"tau", "temperature", "softmin_temperature"}:
+        return {"Softmin Temperature": param_sweeps["Softmin Temperature"]}
+    valid = "all, rho_tau, rho, tau"
+    raise ValueError(f"Unknown sensitivity scope '{scope}'. Valid values: {valid}")
+
+
+def _sensitivity_seed(param_index, env_index, epoch_index):
+    return int(SENSITIVITY_BASE_SEED + param_index * 100000 + env_index * 10000 + epoch_index + 1)
+
+
+def _finite_metric_values(metrics_list, key):
+    values = []
+    for metrics in metrics_list:
+        value = metrics.get(key)
+        if value is None:
+            continue
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not np.isnan(value):
+            values.append(value)
+    return values
+
+
+def _stats_dict(values):
+    if not values:
+        return {"mean": "", "std": "", "min": "", "max": "", "median": ""}
+    arr = np.array(values, dtype=float)
+    return {
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr)),
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "median": float(np.median(arr)),
+    }
+
+
+def _summarize_sensitivity_metrics(metrics_list):
+    summary = {
+        "episode_count": len(metrics_list),
+        "valid_count": len(_finite_metric_values(metrics_list, "distance")),
+    }
+    for source_key, output_key in SENSITIVITY_METRIC_FIELDS:
+        stats = _stats_dict(_finite_metric_values(metrics_list, source_key))
+        for stat_name, value in stats.items():
+            summary[f"{output_key}_{stat_name}"] = value
+    collisions = _finite_metric_values(metrics_list, "collision_count")
+    summary["collision_count_sum"] = int(np.sum(collisions)) if collisions else 0
+    summary["collision_count_mean"] = float(np.mean(collisions)) if collisions else 0.0
+    summary["collision_rate"] = float(np.mean([1 if v > 0 else 0 for v in collisions])) if collisions else 0.0
+    summary["distance_mean"] = summary["path_length_mean"]
+    summary["distance_std"] = summary["path_length_std"]
+    summary["max_curvature_mean"] = summary["maximum_curvature_mean"]
+    summary["max_curvature_std"] = summary["maximum_curvature_std"]
+    summary["min_clearance_mean"] = summary["minimum_clearance_mean"]
+    summary["min_clearance_std"] = summary["minimum_clearance_std"]
+    summary["time_mean"] = summary["computation_time_seconds_mean"]
+    summary["time_std"] = summary["computation_time_seconds_std"]
+    seeds = [int(m["seed"]) for m in metrics_list if m.get("seed") is not None]
+    summary["seed_min"] = min(seeds) if seeds else ""
+    summary["seed_max"] = max(seeds) if seeds else ""
+    return summary
+
+
+def _sensitivity_summary_rows(master_results, param_sweeps, env_configs, param_names, num_epochs):
+    rows = []
+    cfg_by_internal = {cfg["internal_environment"]: cfg for cfg in env_configs}
+    for param_name in param_names:
+        if param_name not in master_results:
+            continue
+        sweep = param_sweeps[param_name]
+        parameter_code = "rho" if param_name == "A* Seed Ratio" else "tau"
+        for internal_env in master_results[param_name]:
+            cfg = cfg_by_internal.get(internal_env, {"manuscript_environment": internal_env,
+                                                     "internal_environment": internal_env})
+            for value in sweep["values"]:
+                entry = master_results[param_name][internal_env].get(str(value))
+                if not entry:
+                    continue
+                row = {
+                    "parameter": parameter_code,
+                    "parameter_label": param_name,
+                    "parameter_key": sweep["key"],
+                    "parameter_value": value,
+                    "manuscript_environment": cfg["manuscript_environment"],
+                    "internal_environment": cfg["internal_environment"],
+                    "requested_epochs": int(num_epochs),
+                }
+                row.update(entry)
+                rows.append(row)
+    return rows
+
+
+def _sensitivity_summary_fieldnames():
+    fields = ["parameter", "parameter_label", "parameter_key", "parameter_value",
+              "manuscript_environment", "internal_environment", "requested_epochs",
+              "episode_count", "valid_count", "seed_min", "seed_max"]
+    for _, output_key in SENSITIVITY_METRIC_FIELDS:
+        for stat in ["mean", "std", "min", "max", "median"]:
+            fields.append(f"{output_key}_{stat}")
+    fields.extend(["collision_count_sum", "collision_count_mean", "collision_rate"])
+    return fields
+
+
+def _latex_num(value, digits=3):
+    if value == "" or value is None:
+        return "--"
+    try:
+        return f"{float(value):.{digits}f}"
+    except Exception:
+        return "--"
+
+
+def _write_sensitivity_latex(rho_rows, tau_rows):
+    bs = chr(92)
+    lines = [
+        bs + "begin{table}[!htbp]",
+        bs + "caption{Summary of rho and softmin-temperature sensitivity results. Values are means over completed fixed-seed episodes for each environment and parameter setting.}",
+        bs + "label{tab:rho_tau_sensitivity}",
+        bs + "centering",
+        bs + "scriptsize",
+        bs + "begin{tabular}{lllrrrrr}",
+        bs + "toprule",
+        "Parameter & Environment & Value & Length & Max. curv. & Min. clear. & Coll. & Time (s) " + bs + bs,
+        bs + "midrule",
+    ]
+    for row in rho_rows + tau_rows:
+        lines.append(
+            f"{_latex_escape(row['parameter'])} & {_latex_escape(row['manuscript_environment'])} & "
+            f"{_latex_num(row['parameter_value'], 2)} & "
+            f"{_latex_num(row.get('path_length_mean'))} & "
+            f"{_latex_num(row.get('maximum_curvature_mean'))} & "
+            f"{_latex_num(row.get('minimum_clearance_mean'))} & "
+            f"{int(row.get('collision_count_sum') or 0)} & "
+            f"{_latex_num(row.get('computation_time_seconds_mean'))} " + bs + bs)
+    lines.extend([bs + "bottomrule", bs + "end{tabular}", bs + "end{table}"])
+    with open("sensitivity_rho_tau_for_latex.tex", "w", encoding="utf-8") as f:
+        f.write(chr(10).join(lines) + chr(10))
+    return "sensitivity_rho_tau_for_latex.tex"
+
+
+def _write_sensitivity_report(metadata, rho_rows, tau_rows, generated_files):
+    report = f"""# Rho/Tau Sensitivity Report
+
+Generated: {metadata['generated_at']}
+
+## Analysis Scope
+
+- Fixed-parameter sensitivity and robustness evidence for the A* seed ratio and softmin temperature.
+- Fixed seeds, reported parameter grids, and saved summary outputs support reproducibility.
+
+## Command
+
+```text
+{metadata['command_used']}
+```
+
+## Parameter Sweeps
+
+- rho / A* seed ratio: {metadata['rho_values']}
+- tau / softmin temperature: {metadata['tau_values']}
+
+Default values are preserved and included: rho = 0.7 and tau = 0.3.
+
+## Metrics Recorded
+
+- path length
+- maximum curvature
+- minimum clearance
+- smoothness
+- wheel effort
+- centering
+- collision count and collision rate
+- computation time
+
+## Seed Policy
+
+Base seed: {metadata['base_seed']}. For each parameter, environment, and episode, the seed is computed deterministically as base_seed + parameter_index * 100000 + environment_index * 10000 + episode_index + 1, where parameter_index is taken from the full sensitivity parameter list so seeds remain stable when running only rho/tau. The same episode seed is reused across values of the same parameter to isolate parameter effects from random-seed effects.
+
+## Environment Coverage
+
+The sweep covers all five manuscript environments, mapped internally as Level-1/Easy, Level-2/Moderate-I, Level-3/Moderate-III, Level-4/Moderate-II, and Level-5/Hard.
+
+## Important Limitation
+
+These outputs quantify fixed-parameter sensitivity only. They do not implement adaptive dynamic parameter tuning, and no optimal range should be claimed unless the completed numerical outputs support it.
+
+## Generated Files
+
+{chr(10).join('- ' + filename for filename in generated_files)}
+
+## Completed Row Counts
+
+- rho summary rows: {len(rho_rows)}
+- tau summary rows: {len(tau_rows)}
+"""
+    with open("sensitivity_rho_tau_report.md", "w", encoding="utf-8") as f:
+        f.write(report)
+    return "sensitivity_rho_tau_report.md"
+
+
+def _write_rho_tau_sensitivity_outputs(master_results, param_sweeps, env_configs, num_epochs, scope, command_used):
+    rho_rows = _sensitivity_summary_rows(master_results, param_sweeps, env_configs,
+                                         ["A* Seed Ratio"], num_epochs)
+    tau_rows = _sensitivity_summary_rows(master_results, param_sweeps, env_configs,
+                                         ["Softmin Temperature"], num_epochs)
+    fieldnames = _sensitivity_summary_fieldnames()
+    generated = []
+    _write_csv_rows("sensitivity_rho_summary.csv", rho_rows, fieldnames)
+    generated.append("sensitivity_rho_summary.csv")
+    _write_csv_rows("sensitivity_tau_summary.csv", tau_rows, fieldnames)
+    generated.append("sensitivity_tau_summary.csv")
+    generated.append(_write_sensitivity_latex(rho_rows, tau_rows))
+    metadata = {
+        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "command_used": command_used,
+        "scope": scope,
+        "num_epochs": int(num_epochs),
+        "base_seed": SENSITIVITY_BASE_SEED,
+        "rho_values": param_sweeps.get("A* Seed Ratio", {}).get("values", []),
+        "tau_values": param_sweeps.get("Softmin Temperature", {}).get("values", []),
+    }
+    report_file = "sensitivity_rho_tau_report.md"
+    generated.append(_write_sensitivity_report(metadata, rho_rows, tau_rows,
+                                               generated + [report_file]))
+    return generated
+
+def run_sensitivity_mode(num_epochs=10, scope="all"):
     """Mode 3: Sensitivity analysis for A* initialized NSGA-II.
 
     For each hyper-parameter, sweep across a range of values while keeping
@@ -2144,32 +2646,35 @@ def run_sensitivity_mode(num_epochs=10):
     Uses multiprocessing to parallelize across epochs for significant speedup
     on multi-core machines (e.g. Google Colab).
 
-    Outputs: per-parameter line-plots (mean ± std) and a JSON summary.
+    Outputs: per-parameter line-plots (mean Â± std) and a JSON summary.
     """
     global grid, dist_field
 
-    n_workers = max(1, os.cpu_count() - 1)  # Leave 1 core for OS
-    print(f"Detected {os.cpu_count()} CPU cores — using {n_workers} parallel workers")
+    n_workers = max(1, os.cpu_count() - 2)  # Leave 2 core for OS
+    print(f"Detected {os.cpu_count()} CPU cores â€” using {n_workers} parallel workers")
 
-    ENV_DIFFICULTIES = ["Easy", "Moderate-I",
-                        "Moderate-II", "Moderate-III",
-                        "Hard"]
+    ENV_CONFIGS = _sensitivity_env_configs()
+    ENV_DIFFICULTIES = [cfg["internal_environment"] for cfg in ENV_CONFIGS]
 
     # ---- Define parameter sweep ranges ----
-    PARAM_SWEEPS = {
-        "Population Size":    {"key": "pop_size",    "values": [20, 40, 60, 80, 100]},
-        "Generations":        {"key": "ngen",        "values": [10, 20, 40, 60, 80]},
-        "Crossover Prob":     {"key": "cxpb",        "values": [0.5, 0.6, 0.7, 0.8, 0.9]},
-        "Mutation Prob":      {"key": "mutpb",       "values": [0.1, 0.2, 0.3, 0.4, 0.5]},
-        "Control Points":    {"key": "n_ctrl_pts",  "values": [3, 5, 7, 9, 11]},
-        "A* Seed Ratio":     {"key": "seed_ratio",  "values": [0.0, 0.3, 0.5, 0.7, 1.0]},
-        "Mutation Sigma":    {"key": "mut_sigma",   "values": [0.5, 1.0, 2.0, 3.0, 5.0]},
+    ALL_PARAM_SWEEPS = {
+        "Population Size":      {"key": "pop_size",            "values": [20, 40, 60, 80, 100]},
+        "Generations":          {"key": "ngen",                "values": [10, 20, 40, 60, 80]},
+        "Crossover Prob":       {"key": "cxpb",                "values": [0.5, 0.6, 0.7, 0.8, 0.9]},
+        "Mutation Prob":        {"key": "mutpb",               "values": [0.1, 0.2, 0.3, 0.4, 0.5]},
+        "Control Points":       {"key": "n_ctrl_pts",          "values": [3, 5, 7, 9, 11]},
+        "A* Seed Ratio":        {"key": "seed_ratio",          "values": [0.0, 0.25, 0.5, 0.7, 0.9, 1.0]},
+        "Softmin Temperature":  {"key": "softmin_temperature", "values": [0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0]},
+        "Mutation Sigma":       {"key": "mut_sigma",           "values": [0.5, 1.0, 2.0, 3.0, 5.0]},
     }
+    PARAM_SWEEPS = _select_sensitivity_sweeps(ALL_PARAM_SWEEPS, scope)
+    PARAM_INDEX = {name: idx for idx, name in enumerate(ALL_PARAM_SWEEPS)}
 
     # Default values (must match run_nsga_ii defaults)
     DEFAULTS = {
         "pop_size": 60, "ngen": 40, "cxpb": 0.7, "mutpb": 0.3,
         "n_ctrl_pts": 5, "seed_ratio": 0.7, "mut_sigma": 2.0, "indpb": 0.2,
+        "softmin_temperature": 0.3,
     }
 
     # Total job estimate
@@ -2183,6 +2688,7 @@ def run_sensitivity_mode(num_epochs=10):
     all_param_env_results = {}  # param_name -> {env -> {value -> [metrics]}}
 
     for param_name, sweep_info in PARAM_SWEEPS.items():
+        param_index = PARAM_INDEX[param_name]
         key = sweep_info["key"]
         values = sweep_info["values"]
         print(f"\n{'='*70}")
@@ -2193,7 +2699,7 @@ def run_sensitivity_mode(num_epochs=10):
 
         all_env_results = {}  # env -> value -> list[metrics]
 
-        for diff in ENV_DIFFICULTIES:
+        for env_index, diff in enumerate(ENV_DIFFICULTIES):
             print(f"\n  Environment: {diff}")
             # Set global state for single-process fallback
             grid, waypoints = create_patrol_environment(diff)
@@ -2207,7 +2713,7 @@ def run_sensitivity_mode(num_epochs=10):
                 kwargs = dict(DEFAULTS)
                 kwargs[key] = val
                 for epoch in range(num_epochs):
-                    epoch_seed = hash((param_name, diff, val, epoch)) % (2**31)
+                    epoch_seed = _sensitivity_seed(param_index, env_index, epoch)
                     worker_args = (diff, kwargs, epoch_seed)
                     tasks.append((val, epoch, worker_args))
 
@@ -2236,8 +2742,11 @@ def run_sensitivity_mode(num_epochs=10):
                             print(f"    {key}={val}  epoch {epoch+1}  FAILED: {e}")
                             task_results[(val, epoch)] = {
                                 "distance": float('nan'), "max_curvature": float('nan'),
-                                "min_clearance": float('nan'), "collision_pts": 0,
-                                "computation_time": 0.0,
+                                "min_clearance": float('nan'), "smoothness": float('nan'),
+                                "wheel_effort": float('nan'), "centering": float('nan'),
+                                "collision_count": 0, "collision_pts": 0,
+                                "computation_time": float('nan'),
+                                "seed": _sensitivity_seed(param_index, env_index, epoch),
                             }
             else:
                 # Single-core fallback (sequential)
@@ -2269,27 +2778,27 @@ def run_sensitivity_mode(num_epochs=10):
         all_param_env_results[param_name] = all_env_results
 
         master_results[param_name] = {}
-        for diff in ENV_DIFFICULTIES:
+        for env_index, diff in enumerate(ENV_DIFFICULTIES):
             master_results[param_name][diff] = {}
             for val in values:
                 metrics_list = all_env_results[diff][val]
-                master_results[param_name][diff][str(val)] = {
-                    "distance_mean":   float(np.mean([m["distance"] for m in metrics_list])),
-                    "distance_std":    float(np.std([m["distance"] for m in metrics_list])),
-                    "max_curvature_mean": float(np.mean([m["max_curvature"] for m in metrics_list])),
-                    "max_curvature_std":  float(np.std([m["max_curvature"] for m in metrics_list])),
-                    "min_clearance_mean": float(np.mean([m["min_clearance"] for m in metrics_list])),
-                    "min_clearance_std":  float(np.std([m["min_clearance"] for m in metrics_list])),
-                    "time_mean":       float(np.mean([m["computation_time"] for m in metrics_list])),
-                    "time_std":        float(np.std([m["computation_time"] for m in metrics_list])),
-                    "collision_rate":  float(np.mean([1 if m["collision_pts"] > 0 else 0
-                                                      for m in metrics_list])),
-                }
+                master_results[param_name][diff][str(val)] = _summarize_sensitivity_metrics(metrics_list)
 
     # Save complete results
     with open("sensitivity_results.json", "w") as f:
         json.dump(master_results, f, indent=4)
     print("\nSaved sensitivity_results.json")
+    generated_sensitivity_files = _write_rho_tau_sensitivity_outputs(
+        master_results=master_results,
+        param_sweeps=PARAM_SWEEPS,
+        env_configs=ENV_CONFIGS,
+        num_epochs=num_epochs,
+        scope=scope,
+        command_used=" ".join(sys.argv),
+    )
+    print("Saved rho/tau sensitivity outputs:")
+    for filename in generated_sensitivity_files:
+        print(f"  {filename}")
 
     # --- Summary table ---
     print(f"\n{'='*70}")
@@ -2301,7 +2810,7 @@ def run_sensitivity_mode(num_epochs=10):
         print(f"    {'Value':>10s}  {'Dist(m)':>10s}  {'MaxK':>10s}  {'Clr(m)':>10s}  {'Time(s)':>10s}  {'ColRate':>8s}")
         for val in values:
             d_means, k_means, c_means, t_means, col_rates = [], [], [], [], []
-            for diff in ENV_DIFFICULTIES:
+            for env_index, diff in enumerate(ENV_DIFFICULTIES):
                 entry = master_results[param_name][diff][str(val)]
                 d_means.append(entry["distance_mean"])
                 k_means.append(entry["max_curvature_mean"])
@@ -2319,6 +2828,1175 @@ def run_sensitivity_mode(num_epochs=10):
 
 
 # ---------------------------------------------------------
+# MODE 4: RESUMABLE SEGMENT TIMING INSTRUMENTATION
+def _segment_env_configs():
+    return [
+        {"index": 0, "manuscript_environment": "Level-1", "internal_environment": "Easy"},
+        {"index": 1, "manuscript_environment": "Level-2", "internal_environment": "Moderate-I"},
+        {"index": 2, "manuscript_environment": "Level-3", "internal_environment": "Moderate-III"},
+        {"index": 3, "manuscript_environment": "Level-4", "internal_environment": "Moderate-II"},
+        {"index": 4, "manuscript_environment": "Level-5", "internal_environment": "Hard"},
+    ]
+
+
+def _select_segment_envs(selected_env):
+    configs = _segment_env_configs()
+    if selected_env is None or selected_env.lower() == "all":
+        return configs
+    selected = selected_env.lower()
+    matches = [cfg for cfg in configs
+               if selected in {cfg["internal_environment"].lower(),
+                               cfg["manuscript_environment"].lower()}]
+    if not matches:
+        valid = ", ".join([cfg["internal_environment"] for cfg in configs] +
+                          [cfg["manuscript_environment"] for cfg in configs])
+        raise ValueError(f"Unknown segment timing environment '{selected_env}'. Valid values: all, {valid}")
+    return matches
+
+
+def _waypoint_to_json(point):
+    values = np.asarray(point).tolist()
+    result = []
+    for value in values:
+        value = float(value)
+        result.append(int(value) if value.is_integer() else value)
+    return result
+
+
+def _safe_env_filename(name):
+    return name.replace(" ", "_")
+
+
+def _set_timing_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def _stats_from_times(times):
+    arr = np.array(times, dtype=float)
+    return {
+        "count": int(len(arr)),
+        "mean_seconds": float(np.mean(arr)) if len(arr) else 0.0,
+        "std_seconds": float(np.std(arr)) if len(arr) else 0.0,
+        "min_seconds": float(np.min(arr)) if len(arr) else 0.0,
+        "max_seconds": float(np.max(arr)) if len(arr) else 0.0,
+        "median_seconds": float(np.median(arr)) if len(arr) else 0.0,
+        "sum_seconds": float(np.sum(arr)) if len(arr) else 0.0,
+    }
+
+
+def _route_summary_from_segments(segment_records, route_runtime_seconds,
+                                 generated_outputs=None):
+    if not segment_records:
+        return {}
+    stats = _stats_from_times([r["segment_planning_time_seconds"] for r in segment_records])
+    first = segment_records[0]
+    outputs = generated_outputs or first.get("generated_outputs", [])
+    return {
+        "manuscript_environment": first["manuscript_environment"],
+        "internal_environment": first["internal_environment"],
+        "source_environment": first["internal_environment"],
+        "environment_name": first["manuscript_environment"],
+        "method": first["method"],
+        "episode_id": first["episode_id"],
+        "run_id": first["run_id"],
+        "episode_index": first["episode_index"],
+        "seed": first["seed"],
+        "route_runtime_seconds": float(route_runtime_seconds),
+        "segment_time_sum_seconds": stats["sum_seconds"],
+        "segment_time_mean_seconds": stats["mean_seconds"],
+        "segment_time_std_seconds": stats["std_seconds"],
+        "segment_time_min_seconds": stats["min_seconds"],
+        "segment_time_max_seconds": stats["max_seconds"],
+        "segment_time_median_seconds": stats["median_seconds"],
+        "segment_count": stats["count"],
+        "route_minus_segment_sum_seconds": float(route_runtime_seconds - stats["sum_seconds"]),
+        "generated_outputs": list(outputs),
+        "nsga_multi_output_call": bool(outputs),
+        "runtime_scope": "full_route_with_segment_breakdown",
+    }
+
+
+def _summarize_segment_records(segment_records):
+    groups = {}
+    for record in segment_records:
+        key = (record["manuscript_environment"], record["internal_environment"],
+               record["method"], tuple(record.get("generated_outputs", [])))
+        groups.setdefault(key, []).append(record)
+    rows = []
+    for key in sorted(groups):
+        records = groups[key]
+        stats = _stats_from_times([r["segment_planning_time_seconds"] for r in records])
+        episode_ids = sorted(set(r["episode_id"] for r in records))
+        seeds = sorted(set(int(r["seed"]) for r in records if r.get("seed") is not None))
+        per_episode = []
+        for episode_id in episode_ids:
+            per_episode.append(len([r for r in records if r["episode_id"] == episode_id]))
+        rows.append({
+            "manuscript_environment": key[0],
+            "internal_environment": key[1],
+            "source_environment": key[1],
+            "method": key[2],
+            "generated_outputs": list(key[3]),
+            "episode_count": len(episode_ids),
+            "run_count": len(episode_ids),
+            "segments_per_episode": int(per_episode[0]) if per_episode else 0,
+            "segment_sample_count": stats["count"],
+            "mean_segment_time_seconds": stats["mean_seconds"],
+            "std_segment_time_seconds": stats["std_seconds"],
+            "min_segment_time_seconds": stats["min_seconds"],
+            "max_segment_time_seconds": stats["max_seconds"],
+            "median_segment_time_seconds": stats["median_seconds"],
+            "sum_segment_time_seconds": stats["sum_seconds"],
+            "seed_min": min(seeds) if seeds else "",
+            "seed_max": max(seeds) if seeds else "",
+            "timing_scope": "single_segment_planning_call",
+        })
+    return rows
+
+
+def _flatten_csv_value(value):
+    if isinstance(value, list):
+        return "; ".join(str(v) for v in value)
+    return value
+
+
+def _write_csv_rows(path, rows, fieldnames):
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: _flatten_csv_value(row.get(name, ""))
+                             for name in fieldnames})
+
+
+def _latex_escape(text):
+    return str(text).replace("&", r"\&").replace("_", r"\_")
+
+
+def _summary_lookup(rows):
+    return {(row["manuscript_environment"], row["method"]): row for row in rows}
+
+# ---------------------------------------------------------
+def _segment_method_selection(method_filter):
+    method_filter = (method_filter or "all").lower()
+    competitors = [("Standard GA", run_ga_standard),
+                   ("AB-WOA-APF", run_ab_woa),
+                   ("HWPSO", run_woa_pso)]
+    if method_filter == "proposed_only":
+        return [], True, ["NSGA-II multi-output"], method_filter
+    if method_filter == "competitors_only":
+        return competitors, False, [name for name, _ in competitors], method_filter
+    if method_filter == "all":
+        return competitors, True, [name for name, _ in competitors] + ["NSGA-II multi-output"], method_filter
+    raise ValueError("Unknown segment timing method filter "
+                     f"'{method_filter}'. Valid values: all, proposed_only, competitors_only")
+
+
+def _segment_checkpoint_filename(manuscript_env):
+    return f"calculation_times_segment_{_safe_env_filename(manuscript_env)}.json"
+
+
+def _episode_index_from_text(text):
+    if text is None:
+        return None
+    for token in reversed(str(text).replace("-", "_").split("_")):
+        if token.isdigit():
+            return int(token)
+    return None
+
+
+def _normalize_segment_record(record, cfg):
+    result = dict(record)
+    result["manuscript_environment"] = result.get("manuscript_environment") or cfg["manuscript_environment"]
+    result["internal_environment"] = result.get("internal_environment") or result.get("source_environment") or cfg["internal_environment"]
+    result["source_environment"] = result["internal_environment"]
+    result["environment_name"] = result["manuscript_environment"]
+    episode_index = result.get("episode_index") or _episode_index_from_text(result.get("episode_id")) or _episode_index_from_text(result.get("run_id"))
+    result["episode_index"] = int(episode_index) if episode_index is not None else None
+    if not result.get("episode_id") and result["episode_index"] is not None:
+        result["episode_id"] = f"{result['manuscript_environment']}_episode_{result['episode_index']:03d}"
+    result["run_id"] = result.get("run_id") or result.get("episode_id", "")
+    result["segment_index"] = int(result.get("segment_index", -1))
+    if result.get("seed") is not None:
+        result["seed"] = int(result["seed"])
+    result["generated_outputs"] = list(result.get("generated_outputs", []))
+    result["nsga_multi_output_call"] = bool(result["generated_outputs"])
+    return result
+
+
+def _normalize_route_record(record, cfg):
+    result = dict(record)
+    result["manuscript_environment"] = result.get("manuscript_environment") or cfg["manuscript_environment"]
+    result["internal_environment"] = result.get("internal_environment") or result.get("source_environment") or cfg["internal_environment"]
+    result["source_environment"] = result["internal_environment"]
+    result["environment_name"] = result["manuscript_environment"]
+    episode_index = result.get("episode_index") or _episode_index_from_text(result.get("episode_id")) or _episode_index_from_text(result.get("run_id"))
+    result["episode_index"] = int(episode_index) if episode_index is not None else None
+    if not result.get("episode_id") and result["episode_index"] is not None:
+        result["episode_id"] = f"{result['manuscript_environment']}_episode_{result['episode_index']:03d}"
+    result["run_id"] = result.get("run_id") or result.get("episode_id", "")
+    if result.get("seed") is not None:
+        result["seed"] = int(result["seed"])
+    result["generated_outputs"] = list(result.get("generated_outputs", []))
+    result["nsga_multi_output_call"] = bool(result["generated_outputs"])
+    return result
+
+
+def _segment_record_key(record):
+    return (record.get("manuscript_environment"), record.get("internal_environment"),
+            record.get("method"), int(record.get("episode_index") or -1),
+            int(record.get("seed") if record.get("seed") is not None else -1),
+            int(record.get("segment_index") or -1))
+
+
+def _route_record_key(record):
+    return (record.get("manuscript_environment"), record.get("internal_environment"),
+            record.get("method"), int(record.get("episode_index") or -1),
+            int(record.get("seed") if record.get("seed") is not None else -1))
+
+
+def _dedupe_records(records, key_func):
+    deduped = {}
+    for record in records:
+        deduped[key_func(record)] = record
+    return [deduped[key] for key in sorted(deduped)]
+
+
+def _load_segment_env_checkpoint(cfg):
+    filename = _segment_checkpoint_filename(cfg["manuscript_environment"])
+    if not os.path.exists(filename):
+        return [], [], False
+    with open(filename, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    segments = [_normalize_segment_record(r, cfg) for r in payload.get("segment_records", [])]
+    routes = [_normalize_route_record(r, cfg) for r in payload.get("route_summaries", [])]
+    return _dedupe_records(segments, _segment_record_key), _dedupe_records(routes, _route_record_key), True
+
+
+def _filter_records_by_methods(records, method_names):
+    allowed = set(method_names)
+    return [record for record in records if record.get("method") in allowed]
+
+
+def _completed_episode_count(route_summaries, method_names):
+    counts = []
+    for method in method_names:
+        episodes = {int(r["episode_index"]) for r in route_summaries
+                    if r.get("method") == method and r.get("episode_index") is not None}
+        counts.append(len(episodes))
+    return min(counts) if counts else 0
+
+
+def _segment_method_episode_seed(record, manuscript_env, internal_env, method, episode_index, seed):
+    return (_route_record_key(record) ==
+            (manuscript_env, internal_env, method, int(episode_index), int(seed)))
+
+
+def _estimate_total_segment_calls(configs, num_runs, method_names):
+    total = 0
+    for cfg in configs:
+        _, waypoints = create_patrol_environment(cfg["internal_environment"])
+        total += len(waypoints) * int(num_runs) * len(method_names)
+    return total
+
+
+def _count_completed_segment_calls(configs, method_names, num_runs):
+    total = 0
+    for cfg in configs:
+        segments, _, _ = _load_segment_env_checkpoint(cfg)
+        for record in segments:
+            if (record.get("method") in method_names and
+                    int(record.get("episode_index") or 0) <= int(num_runs)):
+                total += 1
+    return total
+
+
+def _make_progress_callback(progress_state):
+    def _callback(record):
+        progress_state["completed_segment_calls"] += 1
+        completed = progress_state["completed_segment_calls"]
+        total = progress_state["total_segment_calls"]
+        elapsed_all = time.perf_counter() - progress_state["started_perf"]
+        eta = "not_available"
+        if completed > 0 and total > 0:
+            eta = f"{(elapsed_all / completed) * max(total - completed, 0):.1f}s"
+        print("    progress | "
+              f"env={record['manuscript_environment']} ({record['internal_environment']}) | "
+              f"method={record['method']} | episode={record['episode_index']}/{progress_state['num_runs']} | "
+              f"seed={record['seed']} | segment={record['segment_index']}/{progress_state['current_waypoint_count']} | "
+              f"elapsed={record['segment_planning_time_seconds']:.3f}s | completed={completed}/{total} | eta={eta}")
+    return _callback
+
+
+def _append_segment_timing(records, timing_context, segment_index, start, goal,
+                           elapsed_seconds, generated_outputs=None):
+    context = timing_context or {}
+    waypoint_count = context.get("waypoint_count")
+    from_wp = segment_index + 1
+    to_wp = 1 if waypoint_count and from_wp == waypoint_count else from_wp + 1
+    outputs = generated_outputs or context.get("generated_outputs", [])
+    manuscript_env = context.get("manuscript_environment", "")
+    internal_env = context.get("internal_environment", context.get("source_environment", ""))
+    record = {
+        "manuscript_environment": manuscript_env,
+        "internal_environment": internal_env,
+        "source_environment": internal_env,
+        "environment_name": manuscript_env,
+        "method": context.get("method", "unknown"),
+        "episode_id": context.get("episode_id", context.get("run_id", "")),
+        "run_id": context.get("run_id", context.get("episode_id", "")),
+        "episode_index": context.get("episode_index"),
+        "seed": context.get("seed"),
+        "segment_index": int(segment_index + 1),
+        "segment_label": f"WP_{from_wp}->WP_{to_wp}",
+        "start_waypoint": _waypoint_to_json(start),
+        "goal_waypoint": _waypoint_to_json(goal),
+        "segment_planning_time_seconds": float(elapsed_seconds),
+        "generated_outputs": list(outputs),
+        "nsga_multi_output_call": bool(outputs),
+    }
+    records.append(record)
+    callback = context.get("progress_callback")
+    if callback is not None:
+        callback(record)
+
+def _load_existing_full_route_runtime_lookup():
+    lookup = {}
+    path = "runtime_summary_by_environment.csv"
+    if not os.path.exists(path):
+        return lookup
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            env = row.get("manuscript_environment", "")
+            method = row.get("method", "")
+            if env and method:
+                lookup[(env, method)] = {
+                    "mean_seconds": row.get("runtime_mean_seconds", ""),
+                    "std_seconds": row.get("runtime_std_seconds", ""),
+                    "source_file": row.get("source_file", path),
+                    "matched_method": method,
+                }
+    return lookup
+
+
+def _existing_full_route_for_method(lookup, manuscript_env, method):
+    candidates = [method]
+    if method == "NSGA-II multi-output":
+        candidates = ["NSGA-II Adaptive", "NSGA-II Length"]
+    for candidate in candidates:
+        if (manuscript_env, candidate) in lookup:
+            return lookup[(manuscript_env, candidate)]
+    return {"mean_seconds": "", "std_seconds": "", "source_file": "", "matched_method": ""}
+
+
+def _summarize_route_records(route_summaries):
+    existing_lookup = _load_existing_full_route_runtime_lookup()
+    groups = {}
+    for record in route_summaries:
+        key = (record["manuscript_environment"], record["internal_environment"],
+               record["method"], tuple(record.get("generated_outputs", [])))
+        groups.setdefault(key, []).append(record)
+    rows = []
+    for key in sorted(groups):
+        records = groups[key]
+        route_stats = _stats_from_times([r["route_runtime_seconds"] for r in records])
+        sum_stats = _stats_from_times([r["segment_time_sum_seconds"] for r in records])
+        mean_stats = _stats_from_times([r["segment_time_mean_seconds"] for r in records])
+        max_stats = _stats_from_times([r["segment_time_max_seconds"] for r in records])
+        overhead_stats = _stats_from_times([r["route_minus_segment_sum_seconds"] for r in records])
+        seeds = sorted(set(int(r["seed"]) for r in records if r.get("seed") is not None))
+        segment_counts = sorted(set(int(r["segment_count"]) for r in records))
+        existing = _existing_full_route_for_method(existing_lookup, key[0], key[2])
+        rows.append({
+            "manuscript_environment": key[0],
+            "internal_environment": key[1],
+            "source_environment": key[1],
+            "method": key[2],
+            "generated_outputs": list(key[3]),
+            "episode_count": len(records),
+            "run_count": len(records),
+            "segments_per_episode": segment_counts[0] if len(segment_counts) == 1 else ";".join(str(v) for v in segment_counts),
+            "route_runtime_mean_seconds": route_stats["mean_seconds"],
+            "route_runtime_std_seconds": route_stats["std_seconds"],
+            "route_runtime_min_seconds": route_stats["min_seconds"],
+            "route_runtime_max_seconds": route_stats["max_seconds"],
+            "route_runtime_median_seconds": route_stats["median_seconds"],
+            "summed_segment_runtime_mean_seconds": sum_stats["mean_seconds"],
+            "summed_segment_runtime_std_seconds": sum_stats["std_seconds"],
+            "summed_segment_runtime_min_seconds": sum_stats["min_seconds"],
+            "summed_segment_runtime_max_seconds": sum_stats["max_seconds"],
+            "summed_segment_runtime_median_seconds": sum_stats["median_seconds"],
+            "mean_segment_runtime_mean_seconds": mean_stats["mean_seconds"],
+            "mean_segment_runtime_std_seconds": mean_stats["std_seconds"],
+            "mean_segment_runtime_min_seconds": mean_stats["min_seconds"],
+            "mean_segment_runtime_max_seconds": mean_stats["max_seconds"],
+            "mean_segment_runtime_median_seconds": mean_stats["median_seconds"],
+            "maximum_segment_runtime_mean_seconds": max_stats["mean_seconds"],
+            "maximum_segment_runtime_std_seconds": max_stats["std_seconds"],
+            "maximum_segment_runtime_min_seconds": max_stats["min_seconds"],
+            "maximum_segment_runtime_max_seconds": max_stats["max_seconds"],
+            "maximum_segment_runtime_median_seconds": max_stats["median_seconds"],
+            "route_minus_segment_sum_mean_seconds": overhead_stats["mean_seconds"],
+            "route_minus_segment_sum_std_seconds": overhead_stats["std_seconds"],
+            "route_minus_segment_sum_min_seconds": overhead_stats["min_seconds"],
+            "route_minus_segment_sum_max_seconds": overhead_stats["max_seconds"],
+            "route_minus_segment_sum_median_seconds": overhead_stats["median_seconds"],
+            "existing_full_route_method": existing["matched_method"],
+            "existing_full_route_runtime_mean_seconds": existing["mean_seconds"],
+            "existing_full_route_runtime_std_seconds": existing["std_seconds"],
+            "existing_full_route_runtime_source": existing["source_file"],
+            "seed_min": min(seeds) if seeds else "",
+            "seed_max": max(seeds) if seeds else "",
+            "runtime_scope": "full_route_with_segment_breakdown_summary",
+        })
+    return rows
+
+
+def _write_single_segment_latex(summary_rows, route_summary_rows,
+                                path="single_segment_time_for_latex.tex"):
+    route_lookup = _summary_lookup(route_summary_rows)
+    lines = [
+        r"\begin{table}[!htbp]",
+        r"\caption{Runtime and true single-segment planning time from fixed-seed checkpointed episodes. The NSGA-II row represents one multi-output NSGA-II optimization call per segment that jointly generates Length, Smooth, Effort, Centered, Safe, and Adaptive paths.}",
+        r"\label{tab:single_segment_time}",
+        r"\centering",
+        r"\renewcommand{\arraystretch}{1.2}",
+        r"\begin{tabular}{llcccc}",
+        r"\hline",
+        r"\textbf{Environment} & \textbf{Method} & \textbf{Episodes} & \textbf{Segments} & \textbf{Segment time (s)} & \textbf{Full-route time (s)} \\",
+        r"\hline",
+    ]
+    for row in summary_rows:
+        route_row = route_lookup.get((row["manuscript_environment"], row["method"]), {})
+        segment_mean_std = f"{row['mean_segment_time_seconds']:.2f}$\\pm${row['std_segment_time_seconds']:.2f}"
+        existing_mean = route_row.get("existing_full_route_runtime_mean_seconds", "")
+        existing_std = route_row.get("existing_full_route_runtime_std_seconds", "")
+        if existing_mean != "" and existing_std != "":
+            route_mean_std = f"{float(existing_mean):.2f}$\\pm${float(existing_std):.2f}"
+        else:
+            route_mean = route_row.get("route_runtime_mean_seconds", 0.0)
+            route_std = route_row.get("route_runtime_std_seconds", 0.0)
+            route_mean_std = f"{float(route_mean):.2f}$\\pm${float(route_std):.2f}"
+        lines.append(
+            f"{_latex_escape(row['manuscript_environment'])} & "
+            f"{_latex_escape(row['method'])} & "
+            f"{row['episode_count']} & {row['segments_per_episode']} & "
+            f"{segment_mean_std} & {route_mean_std} " + r"\\")
+    lines.extend([r"\hline", r"\end{tabular}", r"\end{table}"])
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def _write_segment_timing_aggregate_outputs(segment_records, route_summaries):
+    segment_summary_rows = _summarize_segment_records(segment_records)
+    route_summary_rows = _summarize_route_records(route_summaries)
+    segment_fields = [
+        "manuscript_environment", "internal_environment", "source_environment", "method",
+        "generated_outputs", "episode_count", "run_count", "segments_per_episode",
+        "segment_sample_count", "mean_segment_time_seconds", "std_segment_time_seconds",
+        "min_segment_time_seconds", "max_segment_time_seconds", "median_segment_time_seconds",
+        "sum_segment_time_seconds", "seed_min", "seed_max", "timing_scope",
+    ]
+    route_fields = [
+        "manuscript_environment", "internal_environment", "source_environment", "method",
+        "generated_outputs", "episode_count", "run_count", "segments_per_episode",
+        "route_runtime_mean_seconds", "route_runtime_std_seconds", "route_runtime_min_seconds",
+        "route_runtime_max_seconds", "route_runtime_median_seconds",
+        "summed_segment_runtime_mean_seconds", "summed_segment_runtime_std_seconds",
+        "summed_segment_runtime_min_seconds", "summed_segment_runtime_max_seconds",
+        "summed_segment_runtime_median_seconds", "mean_segment_runtime_mean_seconds",
+        "mean_segment_runtime_std_seconds", "mean_segment_runtime_min_seconds",
+        "mean_segment_runtime_max_seconds", "mean_segment_runtime_median_seconds",
+        "maximum_segment_runtime_mean_seconds", "maximum_segment_runtime_std_seconds",
+        "maximum_segment_runtime_min_seconds", "maximum_segment_runtime_max_seconds",
+        "maximum_segment_runtime_median_seconds", "route_minus_segment_sum_mean_seconds",
+        "route_minus_segment_sum_std_seconds", "route_minus_segment_sum_min_seconds",
+        "route_minus_segment_sum_max_seconds", "route_minus_segment_sum_median_seconds",
+        "existing_full_route_method", "existing_full_route_runtime_mean_seconds",
+        "existing_full_route_runtime_std_seconds", "existing_full_route_runtime_source",
+        "seed_min", "seed_max", "runtime_scope",
+    ]
+    _write_csv_rows("single_segment_time_summary.csv", segment_summary_rows, segment_fields)
+    _write_csv_rows("route_vs_segment_runtime_summary.csv", route_summary_rows, route_fields)
+    _write_single_segment_latex(segment_summary_rows, route_summary_rows)
+    return segment_summary_rows, route_summary_rows
+
+def _format_seconds(value):
+    try:
+        return f"{float(value):.6f}"
+    except (TypeError, ValueError):
+        return "not_available"
+
+
+def _write_segment_timing_report(metadata, generated_files, route_summary_rows,
+                                 path="segment_timing_instrumentation_report.md"):
+    env_lines = "\n".join(f"- {cfg['manuscript_environment']} ({cfg['internal_environment']})"
+                           for cfg in metadata["environment_configs"])
+    method_lines = "\n".join(f"- {name}" for name in metadata["method_names"])
+    manuscript_files = [name for name in generated_files if "Level-" in name]
+    manuscript_file_lines = "\n".join(f"- `{name}`" for name in manuscript_files) or "- No Level checkpoint files found yet."
+    generated_file_lines = "\n".join(f"- `{name}`" for name in generated_files)
+    overhead_values = [row["route_minus_segment_sum_mean_seconds"] for row in route_summary_rows]
+    overhead_max_values = [row["route_minus_segment_sum_max_seconds"] for row in route_summary_rows]
+    overhead_mean = float(np.mean(overhead_values)) if overhead_values else 0.0
+    overhead_max = float(np.max(overhead_max_values)) if overhead_max_values else 0.0
+    report = f"""# Segment Timing Instrumentation Report
+
+Date: {metadata['generated_at']}
+
+Analysis scope:
+
+- Running time, computational complexity, single-segment planning time, and online/real-time suitability.
+- Computational overhead of segmented serial optimization and real-time limitations.
+
+## Long-Run Policy
+
+The 100-episode timing experiment is designed as a resumable local run. The script supports checkpointing so a long run can be interrupted and continued safely.
+
+## Command Syntax
+
+Recommended local commands for final proposed-method segment timing:
+
+```text
+python -u patrollingAlgorithms.py segment_timing 100 Level-1 proposed_only
+python -u patrollingAlgorithms.py segment_timing 100 Level-2 proposed_only
+python -u patrollingAlgorithms.py segment_timing 100 Level-3 proposed_only
+python -u patrollingAlgorithms.py segment_timing 100 Level-4 proposed_only
+python -u patrollingAlgorithms.py segment_timing 100 Level-5 proposed_only
+```
+
+To regenerate summaries from existing checkpoints without running planners:
+
+```text
+python -u patrollingAlgorithms.py segment_timing_aggregate proposed_only
+```
+
+Last command represented in this report: `{metadata['command_used']}`
+
+## Checkpoint And Resume
+
+- Results are written to `calculation_times_segment_Level-*.json` after every completed environment-method block.
+- Resume keys use manuscript environment, internal environment, method, episode index, seed, and segment index.
+- On resume, completed route records are skipped and duplicate segment/route records are deduplicated.
+- If a method block is incomplete, its partial records are discarded before rerunning that same method/episode.
+
+## Where Timing Was Inserted
+
+- `solve_patrol_single(...)`: a timer wraps each per-segment call to the supplied planner function (`run_ga_standard`, `run_ab_woa`, or `run_woa_pso`).
+- `solve_patrol_nsga_all(...)`: a timer wraps each per-segment call to `run_nsga_ii(...)`.
+- `run_segment_timing_mode(...)`: route-level timers wrap the full call to `solve_patrol_single(...)` or `solve_patrol_nsga_all(...)`, so route runtime and the sum/mean/max of segment times are measured from the same instrumented run.
+
+## Algorithmic Logic
+
+No algorithmic logic, objective function, default parameter, waypoint definition, obstacle layout, environment geometry, post-processing operation, or optimizer setting was changed. The edit only standardizes manuscript-facing labels, records optional timing data, and adds checkpoint/resume controls.
+
+## Timing Configuration
+
+- Method filter: `{metadata['method_filter']}`
+- Target episodes per selected environment/method: {metadata['num_runs']}
+- Base seed: {metadata['base_seed']}
+- Seed policy: each environment/episode/method receives a deterministic logged seed computed as `base_seed + environment_index * 10000 + episode_index * 100 + method_index`.
+- Python: {metadata['python_version']}
+- Platform: {metadata['platform']}
+- Processor: {metadata['processor']}
+- CPU count: {metadata['cpu_count']}
+
+## Environment-Name Mapping
+
+Internal environment identifiers are kept only for `create_patrol_environment(...)` and traceability. Manuscript-facing outputs use the following labels:
+
+{env_lines}
+
+## Method List
+
+{method_lines}
+
+The archived single-segment timing prioritizes `proposed_only`, because the existing 100-episode full-route timing outputs already provide method-level full-route runtime comparisons. `competitors_only` and `all` remain available for additional segment timing.
+
+For NSGA-II, one segment timing record corresponds to the single `run_nsga_ii(...)` call that jointly produces Length, Smooth, Effort, Centered, Safe, and Adaptive outputs. These outputs are not counted as independent optimization runs.
+
+## Runtime Analysis Versus Sensitivity Analysis
+
+Runtime and single-segment timing are computational-cost analyses, not parameter-sensitivity experiments. The final local timing run should use 100 fixed-seed episodes to match the manuscript's main statistical comparison protocol. The separate sensitivity analysis may remain at 30 independent runs per parameter setting because it answers a different question about parameter robustness.
+
+## Route Runtime Versus Segment Runtime
+
+Route runtime measured during segment timing is saved together with the summed, mean, and maximum segment runtimes. When available, `route_vs_segment_runtime_summary.csv` also includes the existing full-route runtime mean and standard deviation from `runtime_summary_by_environment.csv`.
+
+Across the currently aggregated route summaries, the mean route-minus-segment overhead is {_format_seconds(overhead_mean)} s and the maximum recorded aggregate overhead is {_format_seconds(overhead_max)} s.
+
+## Online And Real-Time Limitations
+
+These timing measurements do not by themselves establish embedded real-time suitability. The segmented serial optimization structure requires repeated iterative optimization calls over waypoint-to-waypoint segments; therefore, the measured runtime should be interpreted conservatively when discussing online use, low-power embedded deployment, or strict real-time navigation.
+
+## Manuscript-Facing Files To Use
+
+{manuscript_file_lines}
+
+## All Generated Files
+
+{generated_file_lines}
+"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report)
+
+
+def _segment_env_payload(manuscript_env, internal_env, num_runs, base_seed,
+                         env_segment_records, env_route_summaries, status,
+                         method_filter, method_names):
+    selected_routes = _filter_records_by_methods(env_route_summaries, method_names)
+    selected_segments = _filter_records_by_methods(env_segment_records, method_names)
+    completed = _completed_episode_count(selected_routes, method_names)
+    target = max(int(num_runs), completed)
+    return {
+        "metadata": {
+            "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "mode": "segment_timing",
+            "status": status,
+            "method_filter": method_filter,
+            "manuscript_environment": manuscript_env,
+            "internal_environment": internal_env,
+            "source_environment": internal_env,
+            "num_runs_requested": int(num_runs),
+            "num_episodes_requested": int(num_runs),
+            "target_episode_count": target,
+            "num_runs_completed": completed,
+            "num_episodes_completed": completed,
+            "base_seed": int(base_seed),
+            "python_version": sys.version.replace("\n", " "),
+            "platform": platform.platform(),
+            "environment_name_mapping": f"{internal_env} -> {manuscript_env}",
+            "checkpoint_key": "manuscript_environment, internal_environment, method, episode_index, seed, segment_index",
+            "note": "One NSGA-II segment call jointly produces Length, Smooth, Effort, Centered, Safe, and Adaptive outputs.",
+        },
+        "route_summaries": _dedupe_records(env_route_summaries, _route_record_key),
+        "segment_records": _dedupe_records(env_segment_records, _segment_record_key),
+        "single_segment_summary": _summarize_segment_records(selected_segments),
+        "route_vs_segment_summary": _summarize_route_records(selected_routes),
+    }
+
+
+def _write_segment_env_json(manuscript_env, internal_env, num_runs, base_seed,
+                            env_segment_records, env_route_summaries, status,
+                            method_filter, method_names):
+    filename = _segment_checkpoint_filename(manuscript_env)
+    payload = _segment_env_payload(manuscript_env, internal_env, num_runs, base_seed,
+                                   env_segment_records, env_route_summaries, status,
+                                   method_filter, method_names)
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=4)
+    return filename
+
+
+def _aggregate_available_segment_timing_outputs(configs=None, method_filter="all",
+                                                num_runs=100, command_used="aggregate"):
+    configs = configs or _segment_env_configs()
+    _, _, method_names, normalized_filter = _segment_method_selection(method_filter)
+    all_segments = []
+    all_routes = []
+    generated_files = []
+    for cfg in configs:
+        segments, routes, exists = _load_segment_env_checkpoint(cfg)
+        if exists:
+            selected_routes = _filter_records_by_methods(routes, method_names)
+            completed = _completed_episode_count(selected_routes, method_names)
+            status = "complete" if completed >= int(num_runs) else "partial"
+            filename = _write_segment_env_json(
+                cfg["manuscript_environment"], cfg["internal_environment"],
+                num_runs, 20260701, segments, routes, status,
+                normalized_filter, method_names)
+            generated_files.append(filename)
+            all_segments.extend(_filter_records_by_methods(segments, method_names))
+            all_routes.extend(selected_routes)
+    _, route_summary_rows = _write_segment_timing_aggregate_outputs(all_segments, all_routes)
+    generated_files.extend(["single_segment_time_summary.csv",
+                            "route_vs_segment_runtime_summary.csv",
+                            "single_segment_time_for_latex.tex"])
+    metadata = {
+        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "command_used": command_used,
+        "environment_configs": configs,
+        "num_runs": int(num_runs),
+        "base_seed": 20260701,
+        "method_filter": normalized_filter,
+        "method_names": method_names,
+        "python_version": sys.version.replace("\n", " "),
+        "platform": platform.platform(),
+        "processor": platform.processor() or "not reported",
+        "cpu_count": os.cpu_count() or "not reported",
+    }
+    generated_files.append("segment_timing_instrumentation_report.md")
+    _write_segment_timing_report(metadata, generated_files, route_summary_rows)
+    return generated_files
+
+
+def run_segment_timing_aggregate_mode(method_filter="proposed_only", selected_env="all"):
+    configs = _select_segment_envs(selected_env)
+    generated_files = _aggregate_available_segment_timing_outputs(
+        configs=configs,
+        method_filter=method_filter,
+        command_used=f"python -u patrollingAlgorithms.py segment_timing_aggregate {method_filter} {selected_env}",
+    )
+    print("Segment timing aggregation complete. Generated files:")
+    for filename in generated_files:
+        print(f"  {filename}")
+
+def run_segment_timing_mode(num_runs=1, selected_env="all", method_filter="all"):
+    """Measure route and true per-segment planning time without changing planners."""
+    global grid, dist_field
+
+    base_seed = 20260701
+    configs = _select_segment_envs(selected_env)
+    method_specs, include_nsga, method_names, normalized_filter = _segment_method_selection(method_filter)
+    nsga_outputs = ["NSGA-II Length", "NSGA-II Smooth", "NSGA-II Effort",
+                    "NSGA-II Centered", "NSGA-II Safe", "NSGA-II Adaptive"]
+    total_calls = _estimate_total_segment_calls(configs, num_runs, method_names)
+    done_calls = _count_completed_segment_calls(configs, method_names, num_runs)
+    progress_state = {"started_perf": time.perf_counter(),
+                      "completed_segment_calls": done_calls,
+                      "total_segment_calls": total_calls,
+                      "num_runs": int(num_runs),
+                      "current_waypoint_count": 0}
+    progress_callback = _make_progress_callback(progress_state)
+
+    for cfg in configs:
+        internal_env = cfg["internal_environment"]
+        manuscript_env = cfg["manuscript_environment"]
+        env_segments, env_routes, had_checkpoint = _load_segment_env_checkpoint(cfg)
+        completed_routes = {_route_record_key(record) for record in env_routes}
+        print(f"\n=== Segment timing: {manuscript_env} ({internal_env}), method_filter={normalized_filter} ===")
+        if had_checkpoint:
+            completed = _completed_episode_count(_filter_records_by_methods(env_routes, method_names), method_names)
+            print(f"  Loaded checkpoint {_segment_checkpoint_filename(manuscript_env)} "
+                  f"with {completed}/{num_runs} completed selected episodes.")
+
+        for run_idx in range(int(num_runs)):
+            episode_index = run_idx + 1
+            episode_id = f"{manuscript_env}_episode_{episode_index:03d}"
+            grid, waypoints = create_patrol_environment(internal_env)
+            dist_field = ndi.distance_transform_edt(1 - grid)
+            waypoint_count = len(waypoints)
+            progress_state["current_waypoint_count"] = waypoint_count
+
+            for method_index, (method_name, algo_func) in enumerate(method_specs):
+                seed = base_seed + cfg["index"] * 10000 + run_idx * 100 + method_index
+                route_key = (manuscript_env, internal_env, method_name, episode_index, seed)
+                if route_key in completed_routes:
+                    print(f"  skip | {episode_id} | {method_name} | seed={seed} already complete")
+                    continue
+                env_segments = [r for r in env_segments
+                                if not _segment_method_episode_seed(r, manuscript_env, internal_env,
+                                                                    method_name, episode_index, seed)]
+                _set_timing_seed(seed)
+                segment_records = []
+                context = {"manuscript_environment": manuscript_env,
+                           "internal_environment": internal_env,
+                           "source_environment": internal_env,
+                           "method": method_name,
+                           "episode_id": episode_id,
+                           "run_id": episode_id,
+                           "episode_index": episode_index,
+                           "seed": seed,
+                           "waypoint_count": waypoint_count,
+                           "progress_callback": progress_callback}
+                route_t0 = time.perf_counter()
+                solve_patrol_single(algo_func, waypoints,
+                                    timing_records=segment_records,
+                                    timing_context=context)
+                route_elapsed = time.perf_counter() - route_t0
+                route_summary = _route_summary_from_segments(segment_records, route_elapsed)
+                env_segments.extend(segment_records)
+                env_routes.append(route_summary)
+                env_segments = _dedupe_records(env_segments, _segment_record_key)
+                env_routes = _dedupe_records(env_routes, _route_record_key)
+                completed_routes = {_route_record_key(record) for record in env_routes}
+                _write_segment_env_json(manuscript_env, internal_env, num_runs, base_seed,
+                                        env_segments, env_routes, "partial",
+                                        normalized_filter, method_names)
+                print(f"  saved | {episode_id} | {method_name}: route={route_elapsed:.3f}s, "
+                      f"segments={route_summary['segment_time_sum_seconds']:.3f}s")
+
+            if include_nsga:
+                method_name = "NSGA-II multi-output"
+                nsga_method_index = 3
+                seed = base_seed + cfg["index"] * 10000 + run_idx * 100 + nsga_method_index
+                route_key = (manuscript_env, internal_env, method_name, episode_index, seed)
+                if route_key in completed_routes:
+                    print(f"  skip | {episode_id} | {method_name} | seed={seed} already complete")
+                    continue
+                env_segments = [r for r in env_segments
+                                if not _segment_method_episode_seed(r, manuscript_env, internal_env,
+                                                                    method_name, episode_index, seed)]
+                _set_timing_seed(seed)
+                segment_records = []
+                context = {"manuscript_environment": manuscript_env,
+                           "internal_environment": internal_env,
+                           "source_environment": internal_env,
+                           "method": method_name,
+                           "episode_id": episode_id,
+                           "run_id": episode_id,
+                           "episode_index": episode_index,
+                           "seed": seed,
+                           "waypoint_count": waypoint_count,
+                           "generated_outputs": nsga_outputs,
+                           "progress_callback": progress_callback}
+                route_t0 = time.perf_counter()
+                solve_patrol_nsga_all(waypoints, timing_records=segment_records,
+                                      timing_context=context)
+                route_elapsed = time.perf_counter() - route_t0
+                route_summary = _route_summary_from_segments(segment_records, route_elapsed,
+                                                             generated_outputs=nsga_outputs)
+                env_segments.extend(segment_records)
+                env_routes.append(route_summary)
+                env_segments = _dedupe_records(env_segments, _segment_record_key)
+                env_routes = _dedupe_records(env_routes, _route_record_key)
+                completed_routes = {_route_record_key(record) for record in env_routes}
+                _write_segment_env_json(manuscript_env, internal_env, num_runs, base_seed,
+                                        env_segments, env_routes, "partial",
+                                        normalized_filter, method_names)
+                print(f"  saved | {episode_id} | {method_name}: route={route_elapsed:.3f}s, "
+                      f"segments={route_summary['segment_time_sum_seconds']:.3f}s")
+
+        selected_routes = _filter_records_by_methods(env_routes, method_names)
+        completed = _completed_episode_count(selected_routes, method_names)
+        status = "complete" if completed >= int(num_runs) else "partial"
+        filename = _write_segment_env_json(manuscript_env, internal_env, num_runs, base_seed,
+                                           env_segments, env_routes, status,
+                                           normalized_filter, method_names)
+        print(f"  Saved {filename} ({status}, selected completed episodes={completed}/{num_runs})")
+
+    generated_files = _aggregate_available_segment_timing_outputs(
+        configs=_segment_env_configs(),
+        method_filter=normalized_filter,
+        num_runs=num_runs,
+        command_used=f"python -u patrollingAlgorithms.py segment_timing {int(num_runs)} {selected_env} {normalized_filter}")
+    print("\nSegment timing mode complete. Generated files:")
+    for filename in generated_files:
+        print(f"  {filename}")
+
+
+# ---------------------------------------------------------
+# MODE 5: ABLATION EXPERIMENT INFRASTRUCTURE
+# ---------------------------------------------------------
+ABLATION_BASE_SEED = 20260702
+
+
+def _ablation_variant_specs():
+    return [
+        {"key": "full_proposed", "name": "Full proposed method", "kwargs": {},
+         "code_level_meaning": "Default proposed framework with all modules enabled."},
+        {"key": "no_astar_initialization", "name": "No A* initialization",
+         "kwargs": {"seed_ratio": 0.0},
+         "code_level_meaning": "Sets seed_ratio=0.0 to remove A*-guided NSGA-II initialization."},
+        {"key": "reduced_bspline_representation", "name": "Reduced B-Spline representation",
+         "kwargs": {"spline_mode": "linear"},
+         "code_level_meaning": "Uses piecewise-linear trajectory construction inside NSGA-II evaluation and output construction; safety repair may still invoke spline-based repair if needed."},
+        {"key": "reduced_objective_nsga", "name": "Reduced-objective NSGA-II",
+         "kwargs": {"objective_mode": "length_only"},
+         "code_level_meaning": "Replaces the five distinct NSGA-II objectives with a length-only objective tuple."},
+        {"key": "no_softmin_adaptive_fusion", "name": "No softmin adaptive fusion",
+         "kwargs": {"adaptive_mode": "fixed_length_champion"},
+         "code_level_meaning": "Disables softmin blending and uses the Length champion as a fixed final path."},
+        {"key": "no_post_processing", "name": "No post-processing",
+         "kwargs": {"postprocess_enabled": False},
+         "code_level_meaning": "Disables collision repair, smoothing, obstacle escape, curvature re-splining, and junction smoothing after optimization."},
+    ]
+
+
+def _count_path_collisions(path):
+    if path is None or len(path) == 0:
+        return 0
+    iy = np.clip(np.round(path[:, 0]).astype(int), 0, GRID_SIZE - 1)
+    ix = np.clip(np.round(path[:, 1]).astype(int), 0, GRID_SIZE - 1)
+    return int(np.sum(grid[iy, ix] == 1))
+
+
+def _compute_ablation_metrics(path):
+    metrics = compute_all_metrics(path)
+    collisions = _count_path_collisions(path)
+    return {
+        "path_length": float(metrics["distance"]),
+        "maximum_curvature": float(metrics["max_curvature"]),
+        "minimum_obstacle_clearance": float(metrics["min_clearance"]),
+        "smoothness": float(metrics["smoothness"]),
+        "wheel_effort": float(metrics["wheel_effort"]),
+        "centering": float(metrics["centering"]),
+        "collision_count": collisions,
+        "collision_flag": bool(collisions > 0),
+    }
+
+
+def _stats_for_field(records, field):
+    values = [r.get(field) for r in records if r.get(field) is not None]
+    if not values:
+        return {"mean": "", "std": "", "min": "", "max": "", "median": ""}
+    arr = np.array(values, dtype=float)
+    return {"mean": float(np.mean(arr)), "std": float(np.std(arr)),
+            "min": float(np.min(arr)), "max": float(np.max(arr)),
+            "median": float(np.median(arr))}
+
+
+def _summarize_ablation_records(records):
+    variant_lookup = {v["key"]: v for v in _ablation_variant_specs()}
+    groups = {}
+    for record in records:
+        key = (record["manuscript_environment"], record["internal_environment"], record["variant_key"])
+        groups.setdefault(key, []).append(record)
+    rows = []
+    metric_fields = ["path_length", "maximum_curvature", "minimum_obstacle_clearance",
+                     "smoothness", "wheel_effort", "centering", "route_runtime_seconds"]
+    for key in sorted(groups):
+        env, internal_env, variant_key = key
+        group = groups[key]
+        variant = variant_lookup.get(variant_key, {"name": variant_key})
+        success_records = [r for r in group if r.get("status") == "ok"]
+        seeds = sorted(set(int(r["seed"]) for r in group if r.get("seed") is not None))
+        row = {
+            "manuscript_environment": env,
+            "internal_environment": internal_env,
+            "variant_key": variant_key,
+            "variant_name": variant.get("name", variant_key),
+            "episode_count": len(group),
+            "success_count": len(success_records),
+            "failure_count": len(group) - len(success_records),
+            "collision_episode_count": sum(1 for r in success_records if r.get("collision_flag")),
+            "collision_sample_count": sum(int(r.get("collision_count") or 0) for r in success_records),
+            "seed_min": min(seeds) if seeds else "",
+            "seed_max": max(seeds) if seeds else "",
+        }
+        row["collision_episode_rate"] = float(row["collision_episode_count"] / len(success_records)) if success_records else ""
+        for field in metric_fields:
+            stats = _stats_for_field(success_records, field)
+            for stat_name, value in stats.items():
+                row[f"{field}_{stat_name}"] = value
+        rows.append(row)
+    return rows
+
+
+def _write_ablation_json(records, summary_rows, metadata, variants):
+    by_environment = {}
+    for record in records:
+        env = record["manuscript_environment"]
+        by_environment.setdefault(env, {"internal_environment": record["internal_environment"], "records": []})
+        by_environment[env]["records"].append(record)
+    payload = {"metadata": metadata, "variants": variants,
+               "summary": summary_rows, "results_by_environment": by_environment}
+    with open("ablation_results_by_environment.json", "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=4)
+    return "ablation_results_by_environment.json"
+
+
+def _write_ablation_summary_csv(summary_rows):
+    metric_fields = ["path_length", "maximum_curvature", "minimum_obstacle_clearance",
+                     "smoothness", "wheel_effort", "centering", "route_runtime_seconds"]
+    fieldnames = ["manuscript_environment", "internal_environment", "variant_key",
+                  "variant_name", "episode_count", "success_count", "failure_count",
+                  "collision_episode_count", "collision_episode_rate", "collision_sample_count",
+                  "seed_min", "seed_max"]
+    for field in metric_fields:
+        for stat in ["mean", "std", "min", "max", "median"]:
+            fieldnames.append(f"{field}_{stat}")
+    _write_csv_rows("ablation_summary_all.csv", summary_rows, fieldnames)
+    return "ablation_summary_all.csv"
+
+
+def _latex_number(value, digits=3):
+    if value == "" or value is None:
+        return "--"
+    try:
+        return f"{float(value):.{digits}f}"
+    except Exception:
+        return "--"
+
+
+def _write_ablation_latex(summary_rows):
+    lines = [
+        r"\begin{table}[!htbp]",
+        r"\caption{Ablation summary for the proposed framework. Values are computed only from completed episodes; collision episodes indicate paths with at least one obstacle-cell intersection.}",
+        r"\label{tab:ablation}",
+        r"\centering",
+        r"\scriptsize",
+        r"\begin{tabular}{llrrrrr}",
+        r"\toprule",
+        r"Environment & Variant & Length (m) & $\kappa_{max}$ & Min. clear. (m) & Coll. eps. & Runtime (s) \\",
+        r"\midrule",
+    ]
+    for row in summary_rows:
+        lines.append(
+            f"{_latex_escape(row['manuscript_environment'])} & {_latex_escape(row['variant_name'])} & "
+            f"{_latex_number(row.get('path_length_mean'))} & "
+            f"{_latex_number(row.get('maximum_curvature_mean'))} & "
+            f"{_latex_number(row.get('minimum_obstacle_clearance_mean'))} & "
+            f"{row.get('collision_episode_count', 0)} & "
+            f"{_latex_number(row.get('route_runtime_seconds_mean'))} \\")
+    lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
+    with open("ablation_summary_for_latex.tex", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return "ablation_summary_for_latex.tex"
+
+
+def _write_ablation_report(metadata, variants, summary_rows, generated_files):
+    env_lines = ["- Easy -> Level-1", "- Moderate-I -> Level-2",
+                 "- Moderate-III -> Level-3", "- Moderate-II -> Level-4",
+                 "- Hard -> Level-5"]
+    variant_lines = [f"- {v['name']} (`{v['key']}`): {v['code_level_meaning']}" for v in variants]
+    collision_rows = [r for r in summary_rows if r.get("collision_episode_count", 0)]
+    if collision_rows:
+        collision_lines = [f"- {r['manuscript_environment']} / {r['variant_name']}: {r['collision_episode_count']} collision episode(s), {r['collision_sample_count']} obstacle-cell samples." for r in collision_rows]
+    else:
+        collision_lines = ["- No collision-producing variants in the completed ablation records."]
+    report = f"""# Ablation Experiment Report
+
+Generated: {metadata['generated_at']}
+
+## Analysis Scope
+
+- Ablation experiments for A* initialization, B-Spline representation, five-objective NSGA-II, softmin adaptive fusion, and post-processing.
+- Module comparison, parameter-related verification, post-processing, and segmented local-optimum limitations.
+
+## Command
+
+```text
+{metadata['command_used']}
+```
+
+## Ablation Variants
+
+{chr(10).join(variant_lines)}
+
+## Full Method Preservation
+
+The default proposed method is preserved. Ablations are activated only through optional keyword arguments passed by `run_ablation_mode(...)` to `solve_patrol_nsga_all(...)` and `run_nsga_ii(...)`. Existing modes and default parameters remain unchanged.
+
+## Episode Count
+
+- Requested episodes per selected environment: {metadata['num_runs']}
+- Completed record count: {metadata['record_count']}
+
+## Seed Policy
+
+Base seed: `{metadata['base_seed']}`. For each selected environment and episode, the seed is `base_seed + environment_index * 10000 + episode_index`. The same episode seed is reused across ablation variants to isolate module changes rather than random-seed changes.
+
+## Environment-Name Mapping
+
+{chr(10).join(env_lines)}
+
+## Metrics Recorded
+
+- path length
+- maximum curvature
+- minimum obstacle clearance
+- smoothness
+- wheel effort
+- centering
+- collision count and collision flag
+- route runtime
+- failure count and failure reason, if a variant fails
+
+## Infeasible Or Collision-Producing Variants
+
+{chr(10).join(collision_lines)}
+
+## Limitations
+
+- The `Reduced B-Spline representation` variant replaces B-Spline trajectory construction inside NSGA-II evaluation and final candidate construction with piecewise-linear interpolation. This is the closest controlled variant that keeps the planner executable. If safety repair is enabled, the post-processing pipeline may still use spline-based repair internally; this limitation must be reported honestly in the manuscript.
+- The `No post-processing` variant intentionally disables collision repair, kinematic smoothing, obstacle escape, curvature re-splining, and junction smoothing. Collision or infeasible paths are recorded rather than hidden.
+- These ablation outputs are experimental evidence only; no manuscript claims should be added until the requested local run has completed and the generated files have been inspected.
+
+## Generated Files
+
+{chr(10).join('- ' + name for name in generated_files)}
+"""
+    with open("ablation_experiment_report.md", "w", encoding="utf-8") as f:
+        f.write(report)
+    return "ablation_experiment_report.md"
+
+
+def _write_ablation_outputs(records, metadata, variants):
+    summary_rows = _summarize_ablation_records(records)
+    generated = []
+    generated.append(_write_ablation_json(records, summary_rows, metadata, variants))
+    generated.append(_write_ablation_summary_csv(summary_rows))
+    generated.append(_write_ablation_latex(summary_rows))
+    report_file = "ablation_experiment_report.md"
+    generated.append(_write_ablation_report(metadata, variants, summary_rows, generated + [report_file]))
+    return generated
+
+
+def run_ablation_mode(num_runs=30, selected_env="all"):
+    """Run controlled ablation variants for the proposed framework."""
+    global grid, dist_field
+    configs = _select_segment_envs(selected_env)
+    variants = _ablation_variant_specs()
+    records = []
+    command_used = f"python -u patrollingAlgorithms.py ablation {int(num_runs)} {selected_env}"
+    print(f"=== MODE: Ablation ({int(num_runs)} episode(s), env={selected_env}) ===")
+    print("Ablation outputs will be written to ablation_* files only.")
+
+    for cfg in configs:
+        manuscript_env = cfg["manuscript_environment"]
+        internal_env = cfg["internal_environment"]
+        print(f"\n=== Ablation: {manuscript_env} ({internal_env}) ===")
+        for run_idx in range(int(num_runs)):
+            episode_index = run_idx + 1
+            seed = ABLATION_BASE_SEED + cfg["index"] * 10000 + episode_index
+            episode_id = f"{manuscript_env}_episode_{episode_index:03d}"
+            for variant in variants:
+                _set_timing_seed(seed)
+                grid, waypoints = create_patrol_environment(internal_env)
+                dist_field = ndi.distance_transform_edt(1 - grid)
+                route_t0 = time.perf_counter()
+                row = {
+                    "manuscript_environment": manuscript_env,
+                    "internal_environment": internal_env,
+                    "source_environment": internal_env,
+                    "environment_name": manuscript_env,
+                    "episode_id": episode_id,
+                    "episode_index": episode_index,
+                    "seed": seed,
+                    "variant_key": variant["key"],
+                    "variant_name": variant["name"],
+                    "variant_kwargs": dict(variant["kwargs"]),
+                    "status": "ok",
+                    "failure_reason": "",
+                }
+                try:
+                    paths = solve_patrol_nsga_all(waypoints, **variant["kwargs"])
+                    path_adaptive = paths["Adaptive"]
+                    row["route_runtime_seconds"] = float(time.perf_counter() - route_t0)
+                    row.update(_compute_ablation_metrics(path_adaptive))
+                    print(f"  ok | {episode_id} | {variant['name']} | seed={seed} | length={row['path_length']:.3f} | collisions={row['collision_count']} | runtime={row['route_runtime_seconds']:.3f}s")
+                except Exception as exc:
+                    row["status"] = "failed"
+                    row["failure_reason"] = str(exc)
+                    row["route_runtime_seconds"] = float(time.perf_counter() - route_t0)
+                    for field in ["path_length", "maximum_curvature", "minimum_obstacle_clearance", "smoothness", "wheel_effort", "centering"]:
+                        row[field] = None
+                    row["collision_count"] = None
+                    row["collision_flag"] = None
+                    print(f"  failed | {episode_id} | {variant['name']} | seed={seed} | {exc}")
+                records.append(row)
+
+    metadata = {
+        "generated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "mode": "ablation",
+        "command_used": command_used,
+        "num_runs": int(num_runs),
+        "selected_env": selected_env,
+        "base_seed": ABLATION_BASE_SEED,
+        "record_count": len(records),
+        "environment_configs": configs,
+        "python_version": sys.version.replace("\n", " "),
+        "platform": platform.platform(),
+        "processor": platform.processor() or "not reported",
+        "cpu_count": os.cpu_count() or "not reported",
+    }
+    generated = _write_ablation_outputs(records, metadata, variants)
+    print("\nAblation mode complete. Generated files:")
+    for filename in generated:
+        print(f"  {filename}")
+# ---------------------------------------------------------
 # ENTRY POINT
 # ---------------------------------------------------------
 if __name__ == "__main__":
@@ -2328,7 +4006,14 @@ if __name__ == "__main__":
     # Usage:
     #   python patrollingAlgorithms.py single            -> 1 epoch, path figures
     #   python patrollingAlgorithms.py test               -> 100 epochs, boxplot & raincloud
-    #   python patrollingAlgorithms.py sensitivity [N]    -> sensitivity analysis (N epochs, default 30)
+    #   python patrollingAlgorithms.py sensitivity [N] [all|rho_tau|rho|tau]
+    #                                                   -> sensitivity analysis (N epochs, default 30)
+    #   python patrollingAlgorithms.py segment_timing [N] [env|all] [all|proposed_only|competitors_only]
+    #                                                   -> resumable segment-level timing
+    #   python patrollingAlgorithms.py segment_timing_aggregate [all|proposed_only|competitors_only] [env|all]
+    #                                                   -> rebuild timing summaries from checkpoints only
+    #   python patrollingAlgorithms.py ablation [N] [env|all]
+    #                                                   -> controlled ablation experiments
     mode = sys.argv[1].lower() if len(sys.argv) > 1 else "single"
 
     if mode == "single":
@@ -2339,8 +4024,27 @@ if __name__ == "__main__":
         run_test_mode(num_epochs=100)
     elif mode == "sensitivity":
         n_ep = int(sys.argv[2]) if len(sys.argv) > 2 else 30
-        print(f"=== MODE: Sensitivity Analysis ({n_ep} epochs per setting) ===")
-        run_sensitivity_mode(num_epochs=n_ep)
+        scope_arg = sys.argv[3] if len(sys.argv) > 3 else "all"
+        print(f"=== MODE: Sensitivity Analysis ({n_ep} epochs per setting, scope={scope_arg}) ===")
+        run_sensitivity_mode(num_epochs=n_ep, scope=scope_arg)
+    elif mode in {"segment_timing", "segment", "timing_segments"}:
+        n_runs = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+        env_arg = sys.argv[3] if len(sys.argv) > 3 else "all"
+        method_arg = sys.argv[4] if len(sys.argv) > 4 else "all"
+        print(f"=== MODE: Segment Timing ({n_runs} run(s), env={env_arg}, method_filter={method_arg}) ===")
+        run_segment_timing_mode(num_runs=n_runs, selected_env=env_arg, method_filter=method_arg)
+    elif mode in {"segment_timing_aggregate", "segment_aggregate", "timing_segments_aggregate"}:
+        method_arg = sys.argv[2] if len(sys.argv) > 2 else "proposed_only"
+        env_arg = sys.argv[3] if len(sys.argv) > 3 else "all"
+        print(f"=== MODE: Segment Timing Aggregate (env={env_arg}, method_filter={method_arg}) ===")
+        run_segment_timing_aggregate_mode(method_filter=method_arg, selected_env=env_arg)
+    elif mode in {"ablation", "ablate"}:
+        n_runs = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+        env_arg = sys.argv[3] if len(sys.argv) > 3 else "all"
+        run_ablation_mode(num_runs=n_runs, selected_env=env_arg)
     else:
-        print(f"Unknown mode '{mode}'. Use 'single', 'test', or 'sensitivity'.")
+        print(f"Unknown mode '{mode}'. Use 'single', 'test', 'sensitivity', 'segment_timing', 'segment_timing_aggregate', or 'ablation'.")
         sys.exit(1)
+
+
+

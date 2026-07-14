@@ -1,0 +1,46 @@
+manuscript_environment,source_environment,source_file,method,runtime_mean_seconds,runtime_std_seconds,runtime_scope,run_count
+Level-1,Easy,calculation_times_Easy.json,Standard GA,10.767579295635223,0.6842573934614405,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,AB-WOA-APF,31.09846874475479,1.8914215496639806,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,HWPSO,6.771352248191834,0.4648053869959529,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Length,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Smooth,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Effort,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Centered,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Safe,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-1,Easy,calculation_times_Easy.json,NSGA-II Adaptive,130.78982149839402,5.283712209209455,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,Standard GA,11.78464342355728,0.7146190790088678,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,AB-WOA-APF,36.166317465305326,1.2620406396439392,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,HWPSO,7.54469954252243,0.4968528771609845,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Length,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Smooth,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Effort,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Centered,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Safe,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-2,Moderate-I,calculation_times_Moderate-I.json,NSGA-II Adaptive,145.83614159345626,5.40080033351092,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,Standard GA,11.816447746753692,1.284933051350809,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,AB-WOA-APF,27.45754940986633,2.917888178088721,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,HWPSO,7.217708141803741,0.7224612843363853,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Length,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Smooth,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Effort,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Centered,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Safe,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-3,Moderate-III,calculation_times_Moderate-III.json,NSGA-II Adaptive,132.21318749427795,10.076574010852637,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,Standard GA,11.283466448783875,1.6608777191686908,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,AB-WOA-APF,28.13458503484726,4.076110733606164,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,HWPSO,7.221101746559143,0.8856818393776263,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Length,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Smooth,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Effort,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Centered,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Safe,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-4,Moderate-II,calculation_times_Moderate-II.json,NSGA-II Adaptive,134.6816750240326,14.46196624626273,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,Standard GA,18.752744076251982,2.7068166013814543,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,AB-WOA-APF,34.465860197544096,3.534045430240542,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,HWPSO,12.473778676986694,1.3901863744844951,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Length,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Smooth,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Effort,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Centered,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Safe,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
+Level-5,Hard,calculation_times_Hard.json,NSGA-II Adaptive,216.78974927425384,20.603491218656952,full_route,not_recorded_in_json
