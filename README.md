@@ -3,7 +3,6 @@
 Python implementation of a multi-objective path-planning framework for sequential mobile-robot navigation. The method combines A* initialization, B-Spline trajectory representation, NSGA-II optimization, adaptive route blending, and collision-aware post-processing across five simulation environments (`Level-1` through `Level-5`).
 
 - **Authors:** Osman Emre Turan, Oğuz Mısır, and Mustafa Özden
-- **Corresponding author:** [emre.turan@btu.edu.tr](mailto:emre.turan@btu.edu.tr)
 
 ## Main capabilities
 
@@ -382,9 +381,8 @@ The `test` and `sensitivity` modes process episodes in parallel. Interleaved pro
 
 If you use this software in academic work, cite the accompanying manuscript:
 
-**Turan O E, Mısır O and Özden M, Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots.**
+**Turan O E, Mısır O and Ozden M, Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots. Measurement Science and Technology**
 
 ## Support
 
-- Use [GitHub Issues](https://github.com/OEmreTURAN/Adaptive-A-Star-and-NSGA-II-Framework-for-Multi-Goal-Navigation-of-Mobile-Robots/issues) for software defects, installation problems, and reproducibility questions.
 - Contact [emre.turan@btu.edu.tr](mailto:emre.turan@btu.edu.tr) for questions about the methodology or manuscript.
