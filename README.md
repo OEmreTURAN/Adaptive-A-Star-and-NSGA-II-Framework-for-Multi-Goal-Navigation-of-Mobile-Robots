@@ -1,4 +1,4 @@
-# Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots
+# [Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots](https://iopscience.iop.org/article/10.1088/1361-6501/ae9209)
 
 Python implementation of a multi-objective path-planning framework for sequential mobile-robot navigation. The method combines A* initialization, B-Spline trajectory representation, NSGA-II optimization, adaptive route blending, and collision-aware post-processing across five simulation environments (`Level-1` through `Level-5`).
 
