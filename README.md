@@ -4,6 +4,12 @@ Python implementation of a multi-objective path-planning framework for sequentia
 
 - **Authors:** Osman Emre Turan, Oğuz Mısır, and Mustafa Özden
 
+## Citation
+
+If you use this source code or the proposed algorithm in your academic works, please cite the accompanying article once it has been published:
+
+**Turan et al 2026 Meas. Sci. Technol. https://doi.org/10.1088/1361-6501/ae9209**
+
 ## Main capabilities
 
 - Representative trajectory generation for the proposed framework and comparison methods
@@ -376,12 +382,6 @@ The program writes outputs to the terminal's current working directory.
 ### Multiprocessing messages appear out of order
 
 The `test` and `sensitivity` modes process episodes in parallel. Interleaved progress messages are expected. Avoid launching multiple long analyses simultaneously on the same machine.
-
-## Citation
-
-If you use this source code or the proposed algorithm in your academic works, please cite the accompanying article once it has been published:
-
-**Turan et al 2026 Meas. Sci. Technol. https://doi.org/10.1088/1361-6501/ae9209**
 
 ## Support
 
