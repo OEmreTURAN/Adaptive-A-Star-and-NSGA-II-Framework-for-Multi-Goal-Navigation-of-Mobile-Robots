@@ -381,7 +381,7 @@ The `test` and `sensitivity` modes process episodes in parallel. Interleaved pro
 
 If you use this source code or the proposed algorithm in your academic works, please cite the accompanying article once it has been published:
 
-**Turan O E, Mısır O and Ozden M, Adaptive A*/NSGA-II Framework for Multi-Goal Navigation of Mobile Robots.**
+**Turan et al 2026 Meas. Sci. Technol. https://doi.org/10.1088/1361-6501/ae9209**
 
 ## Support
 
