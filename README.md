@@ -8,7 +8,7 @@ Python implementation of a multi-objective path-planning framework for sequentia
 
 If you use this source code or the proposed algorithm in your academic works, please cite the accompanying article once it has been published:
 
-**Turan et al 2026 Meas. Sci. Technol. https://doi.org/10.1088/1361-6501/ae9209**
+**Turan O E, Mısır O and Özden M 2026 Adaptive A/NSGA-II framework for multi-goal navigation of mobile robots Meas. Sci. Technol. 37 326303, doi: 10.1088/1361-6501/ae9209**
 
 ## Main capabilities
 
