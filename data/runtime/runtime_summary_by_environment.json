@@ -1,7 +1,6 @@
 [
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "Standard GA",
     "runtime_mean_seconds": 10.767579295635223,
@@ -10,8 +9,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "AB-WOA-APF",
     "runtime_mean_seconds": 31.09846874475479,
@@ -20,8 +18,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "HWPSO",
     "runtime_mean_seconds": 6.771352248191834,
@@ -30,8 +27,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Length",
     "runtime_mean_seconds": 130.78982149839402,
@@ -40,8 +36,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Smooth",
     "runtime_mean_seconds": 130.78982149839402,
@@ -50,8 +45,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Effort",
     "runtime_mean_seconds": 130.78982149839402,
@@ -60,8 +54,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Centered",
     "runtime_mean_seconds": 130.78982149839402,
@@ -70,8 +63,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Safe",
     "runtime_mean_seconds": 130.78982149839402,
@@ -80,8 +72,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-1",
-    "source_environment": "Easy",
+    "environment": "Level-1",
     "source_file": "calculation_times_Level-1.json",
     "method": "NSGA-II Adaptive",
     "runtime_mean_seconds": 130.78982149839402,
@@ -90,8 +81,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "Standard GA",
     "runtime_mean_seconds": 11.78464342355728,
@@ -100,8 +90,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "AB-WOA-APF",
     "runtime_mean_seconds": 36.166317465305326,
@@ -110,8 +99,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "HWPSO",
     "runtime_mean_seconds": 7.54469954252243,
@@ -120,8 +108,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Length",
     "runtime_mean_seconds": 145.83614159345626,
@@ -130,8 +117,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Smooth",
     "runtime_mean_seconds": 145.83614159345626,
@@ -140,8 +126,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Effort",
     "runtime_mean_seconds": 145.83614159345626,
@@ -150,8 +135,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Centered",
     "runtime_mean_seconds": 145.83614159345626,
@@ -160,8 +144,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Safe",
     "runtime_mean_seconds": 145.83614159345626,
@@ -170,8 +153,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-2",
-    "source_environment": "Moderate-I",
+    "environment": "Level-2",
     "source_file": "calculation_times_Level-2.json",
     "method": "NSGA-II Adaptive",
     "runtime_mean_seconds": 145.83614159345626,
@@ -180,8 +162,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "Standard GA",
     "runtime_mean_seconds": 11.816447746753692,
@@ -190,8 +171,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "AB-WOA-APF",
     "runtime_mean_seconds": 27.45754940986633,
@@ -200,8 +180,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "HWPSO",
     "runtime_mean_seconds": 7.217708141803741,
@@ -210,8 +189,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Length",
     "runtime_mean_seconds": 132.21318749427795,
@@ -220,8 +198,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Smooth",
     "runtime_mean_seconds": 132.21318749427795,
@@ -230,8 +207,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Effort",
     "runtime_mean_seconds": 132.21318749427795,
@@ -240,8 +216,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Centered",
     "runtime_mean_seconds": 132.21318749427795,
@@ -250,8 +225,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Safe",
     "runtime_mean_seconds": 132.21318749427795,
@@ -260,8 +234,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-3",
-    "source_environment": "Moderate-III",
+    "environment": "Level-3",
     "source_file": "calculation_times_Level-3.json",
     "method": "NSGA-II Adaptive",
     "runtime_mean_seconds": 132.21318749427795,
@@ -270,8 +243,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "Standard GA",
     "runtime_mean_seconds": 11.283466448783875,
@@ -280,8 +252,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "AB-WOA-APF",
     "runtime_mean_seconds": 28.13458503484726,
@@ -290,8 +261,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "HWPSO",
     "runtime_mean_seconds": 7.221101746559143,
@@ -300,8 +270,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Length",
     "runtime_mean_seconds": 134.6816750240326,
@@ -310,8 +279,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Smooth",
     "runtime_mean_seconds": 134.6816750240326,
@@ -320,8 +288,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Effort",
     "runtime_mean_seconds": 134.6816750240326,
@@ -330,8 +297,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Centered",
     "runtime_mean_seconds": 134.6816750240326,
@@ -340,8 +306,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Safe",
     "runtime_mean_seconds": 134.6816750240326,
@@ -350,8 +315,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-4",
-    "source_environment": "Moderate-II",
+    "environment": "Level-4",
     "source_file": "calculation_times_Level-4.json",
     "method": "NSGA-II Adaptive",
     "runtime_mean_seconds": 134.6816750240326,
@@ -360,8 +324,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "Standard GA",
     "runtime_mean_seconds": 18.752744076251982,
@@ -370,8 +333,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "AB-WOA-APF",
     "runtime_mean_seconds": 34.465860197544096,
@@ -380,8 +342,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "HWPSO",
     "runtime_mean_seconds": 12.473778676986694,
@@ -390,8 +351,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Length",
     "runtime_mean_seconds": 216.78974927425384,
@@ -400,8 +360,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Smooth",
     "runtime_mean_seconds": 216.78974927425384,
@@ -410,8 +369,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Effort",
     "runtime_mean_seconds": 216.78974927425384,
@@ -420,8 +378,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Centered",
     "runtime_mean_seconds": 216.78974927425384,
@@ -430,8 +387,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Safe",
     "runtime_mean_seconds": 216.78974927425384,
@@ -440,8 +396,7 @@
     "run_count": "not_recorded_in_json"
   },
   {
-    "manuscript_environment": "Level-5",
-    "source_environment": "Hard",
+    "environment": "Level-5",
     "source_file": "calculation_times_Level-5.json",
     "method": "NSGA-II Adaptive",
     "runtime_mean_seconds": 216.78974927425384,
