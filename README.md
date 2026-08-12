@@ -322,7 +322,12 @@ These commands check execution and file generation. Their sample sizes are not i
 
 ## Outputs and publication figures
 
-Numerical outputs are generated locally when commands are executed. The repository does not distribute episode-level JSON or CSV records.
+Archived numerical outputs are provided under `data/`, including path metrics,
+runtime measurements, sensitivity results, and ablation results. See
+[`data/README.md`](data/README.md) for the dataset organization.
+
+Executing an evaluation command generates a new set of JSON, CSV, report,
+LaTeX-table, and figure outputs in the current working directory.
 
 Derived publication figures are provided under:
 
